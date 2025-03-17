@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "i8Xpbj4p8yw=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\throx\\source\\chrono\\api\\src\\Chrono.Graph.Core\\Chrono.Graph.Core.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\throx\\.nuget\\packages\\castle.core\\5.1.1\\castle.core.5.1.1.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\nanoid\\3.1.0\\nanoid.3.1.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\system.diagnostics.eventlog\\6.0.0\\system.diagnostics.eventlog.6.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

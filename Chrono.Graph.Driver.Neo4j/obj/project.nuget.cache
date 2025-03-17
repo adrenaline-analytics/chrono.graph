@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "CHrnju0qGEc=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\throx\\source\\chrono\\api\\src\\Chrono.Graph.Driver.Neo4j\\Chrono.Graph.Adapter.Neo4j.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\throx\\.nuget\\packages\\castle.core\\5.1.1\\castle.core.5.1.1.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\5.0.0\\microsoft.bcl.asyncinterfaces.5.0.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\nanoid\\3.1.0\\nanoid.3.1.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\neo4j.driver\\5.25.0\\neo4j.driver.5.25.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\system.diagnostics.eventlog\\6.0.0\\system.diagnostics.eventlog.6.0.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\system.io.pipelines\\7.0.0\\system.io.pipelines.7.0.0.nupkg.sha512",
+    "C:\\Users\\throx\\.nuget\\packages\\system.valuetuple\\4.5.0\\system.valuetuple.4.5.0.nupkg.sha512"
+  ],
+  "logs": []
+}
