@@ -375,10 +375,24 @@ namespace Chrono.Graph.Adapter.Neo4j
                     }
                     else if (instanceProp.PropertyType == typeof(IList<string>))
                     {
-                        
-                        instanceProp.SetValue(instance, nodeProp.Value.As<string>() == "[]" 
-                            ? [] 
-                            : nodeProp.Value.As<IList<string>>());
+
+                        List<string> stringList = [];
+                        var vals = nodeProp.Value.As<string>();
+                        if(vals != "[]")
+                        {
+                            vals = vals.Trim();
+                            vals = vals.StartsWith("\"") ? vals.Substring(1) : vals;
+                            vals = vals.EndsWith("\"") ? vals.Substring(0, vals.Length - 1) : vals;
+                            vals = vals.StartsWith("[") ? vals.Substring(1) : vals;
+                            vals = vals.EndsWith("]") ? vals.Substring(0, vals.Length - 1) : vals;
+                            stringList = vals.Split(',').Select(v =>
+                            {
+                                v = v.StartsWith("\"") ? v.Substring(1) : v;
+                                v = v.EndsWith("\"") ? v.Substring(0, v.Length - 1) : v;
+                                return v;
+                            }).ToList();
+                        }
+                        instanceProp.SetValue(instance, stringList);
                     }
                     else if (instanceProp.PropertyType == typeof(IList<bool>)
                         || instanceProp.PropertyType == typeof(IList<bool?>))
