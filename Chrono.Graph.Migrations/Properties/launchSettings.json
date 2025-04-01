@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Chrono.Graph.Migrations": {
+      "commandName": "Project",
+      "commandLineArgs": "--db=adrenaline",
+      "workingDirectory": "..\\..\\", // optional: sets working dir to solution root
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
