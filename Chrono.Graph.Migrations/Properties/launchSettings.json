@@ -2,6 +2,7 @@
   "profiles": {
     "Chrono.Graph.Migrations": {
       "commandName": "Project",
+      //"commandLineArgs": "--db=adrenaline --rollback=001_class_list_template",
       "commandLineArgs": "--db=adrenaline",
       "workingDirectory": "..\\..\\", // optional: sets working dir to solution root
       "environmentVariables": {
