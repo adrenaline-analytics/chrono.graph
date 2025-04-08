@@ -113,7 +113,8 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             if (transaction?.Factory != null)
             {
-                PutChildren(thing, transaction, depth, transaction.Factory);
+                //if you Put instead of Post here you will overwrite already existing objects
+                PostChildren(thing, transaction, depth, transaction.Factory);
                 await transaction.Execute();
             }
         }
@@ -282,6 +283,15 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 });
         }
+        /// <summary>
+        /// This should never be called.  Putting children means blindly overwriting existing data replacing properties with nulls
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="thing"></param>
+        /// <param name="transaction"></param>
+        /// <param name="depth"></param>
+        /// <param name="parentFactory"></param>
+        [Obsolete("Always post or patch children.  Putting children will overwrite data")]
         private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
