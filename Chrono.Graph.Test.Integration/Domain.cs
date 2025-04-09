@@ -30,7 +30,7 @@ namespace Chrono.Graph.Test.Integration
         Facilitator,
         Spotter,
         Official,
-        Marshall
+        Marshal
     }
 
     public enum ContactCategory
