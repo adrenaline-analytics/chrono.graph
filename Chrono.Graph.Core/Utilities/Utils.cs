@@ -51,6 +51,8 @@ namespace Chrono.Graph.Core.Utilities
                 value.Length > 2048 ? value.Substring(0, 2048) : value,
                 CypherConstants.InvalidCharactersPattern, " ");
 
+        public static string ToTitleCase(this string value) =>
+            new CultureInfo("en-US", false).TextInfo.ToTitleCase(value);
         public static string StandardizeVariableName(string value) => ToCamelCase(StandardizeGraphString(value));
         public static string StandardizePropertyName(string value) => StandardizeNodeLabel(value);
         public static string StandardizeNodeLabel (string value) 

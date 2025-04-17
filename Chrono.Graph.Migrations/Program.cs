@@ -113,6 +113,9 @@ class Program
                             appliedCount++;
                         }
                     }
+                });
+                await session.ExecuteWriteAsync(async tx =>
+                {
 
                     await tx.RunAsync(@"
                         CREATE (:ScriptRun {
