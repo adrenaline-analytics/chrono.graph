@@ -1,6 +1,8 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using Castle.Core.Internal;
+using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
+using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
 using Neo4j.Driver;
 using System.Reflection;
@@ -363,7 +365,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             depth--;
 
             foreach (var prop in thing.GetType().GetProperties()
-                .Where(p => p.GetValue(thing) != null
+                .Where(p => p.GetAttribute<GraphIgnoreAttribute>() == null
+                    && p.GetValue(thing) != null
                     && (ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Object)
                         || ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Dictionary))
                     && !ObjectHelper.IsSerializable(p)))

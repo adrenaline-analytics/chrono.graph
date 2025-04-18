@@ -1,4 +1,5 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using Castle.Core.Internal;
+using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
@@ -262,7 +263,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var type = thing.GetType();
             var idProp = ObjectHelper.GetIdProp(type);
             return type.GetProperties()
-                .Where(p => p.GetValue(thing) == null)
+                .Where(p =>  p.GetAttribute<GraphIgnoreAttribute>() == null && p.GetValue(thing) == null)
                 .Select(p => $"{p.Name}").ToArray();
         }
         internal Dictionary<string, object> GeneratePropertiesDict(object thing)
@@ -271,7 +272,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             var idProp = ObjectHelper.GetIdProp(type);
             return type.GetProperties()
                 .Where(p =>
-                    p.GetValue(thing) != null
+                    p.GetAttribute<GraphIgnoreAttribute>() == null
+                    && p.GetValue(thing) != null
                     && !p.Equals(idProp)
                     && ObjectHelper.IsSerializable(p))
                 .ToDictionary(

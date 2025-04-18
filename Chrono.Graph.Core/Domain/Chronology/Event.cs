@@ -1,4 +1,5 @@
 ﻿using Chrono.Graph.Core.Constant;
+using Chrono.Graph.Core.Notations;
 using System.Text.Json.Serialization;
 
 namespace Chrono.Graph.Core.Domain.Chronology
@@ -56,12 +57,13 @@ namespace Chrono.Graph.Core.Domain.Chronology
 
         public string? BehaviorKey { get; set; }
         [JsonIgnore]
+        [GraphIgnore]
         public Func<long, TimeController<IO, T>, IO, T, IO> Function
         {
             get
             {
                 if (_activity == null && BehaviorKey != null)
-                    _activity = EventBehaviorRegistry<IO, T>.Resolve(BehaviorKey);
+                    _activity = EventBehaviorRegistry<IO, T>.Get(BehaviorKey);
 
                 return _activity ?? throw new InvalidOperationException("Unable to function, no acceptable behavior was found.");
             }
@@ -75,7 +77,7 @@ namespace Chrono.Graph.Core.Domain.Chronology
         public void ResolveBehaviorFromKey()
         {
             if (BehaviorKey != null)
-                Function = EventBehaviorRegistry<IO, T>.Resolve(BehaviorKey) ?? throw new InvalidOperationException($"Unable to function with this behavior {BehaviorKey}.");
+                Function = EventBehaviorRegistry<IO, T>.Get(BehaviorKey) ?? throw new InvalidOperationException($"Unable to function with this behavior {BehaviorKey}.  This is most likely because this behavior has not been registered for type {typeof(IO).FullName}");
         }
     }
 }
