@@ -1,5 +1,4 @@
 ﻿using Chrono.Graph.Core.Domain;
-using Chrono.Graph.Notations;
 using System.Reflection;
 
 namespace Chrono.Graph.Core.Application

@@ -1,6 +1,6 @@
 ﻿using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
-using Chrono.Graph.Notations;
+using Chrono.Graph.Core.Notations;
 using System.Collections;
 using System.Reflection;
 using System.Text.Json;

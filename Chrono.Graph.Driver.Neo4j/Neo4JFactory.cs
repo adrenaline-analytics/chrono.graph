@@ -1,9 +1,8 @@
 ﻿using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
+using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
-using Chrono.Graph.Notations;
-using Neo4j.Driver;
 using System.Linq.Expressions;
 using System.Reflection;
 

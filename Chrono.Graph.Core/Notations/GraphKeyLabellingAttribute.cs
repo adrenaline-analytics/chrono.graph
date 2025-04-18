@@ -1,4 +1,4 @@
-﻿namespace Chrono.Graph.Notations
+﻿namespace Chrono.Graph.Core.Notations
 {
     /// <summary>
     /// Usable on Dictionaries, uses the key as the edge label instead of the property name

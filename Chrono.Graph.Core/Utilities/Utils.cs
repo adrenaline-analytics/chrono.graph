@@ -1,12 +1,8 @@
 ﻿using Castle.DynamicProxy;
-using Chrono.Graph.Adapter.Neo4j;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using NanoidDotNet;
-using System.Collections;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.ComponentModel.Design;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;

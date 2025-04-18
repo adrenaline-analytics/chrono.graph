@@ -1,5 +1,4 @@
-﻿
-namespace Chrono.Graph.Adapter.Neo4j
+﻿namespace Chrono.Graph.Core.Constant
 {
     public static class CypherConstants
     {

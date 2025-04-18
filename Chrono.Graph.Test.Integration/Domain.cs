@@ -1,5 +1,5 @@
 ﻿using Chrono.Graph.Core.Constant;
-using Chrono.Graph.Notations;
+using Chrono.Graph.Core.Notations;
 using System.Numerics;
 
 namespace Chrono.Graph.Test.Integration

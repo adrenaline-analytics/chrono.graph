@@ -1,5 +1,4 @@
-﻿using Chrono.Graph.Adapter.Neo4j;
-using NanoidDotNet;
+﻿using NanoidDotNet;
 
 namespace Chrono.Graph.Test.Integration
 {

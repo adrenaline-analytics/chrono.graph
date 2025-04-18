@@ -1,10 +1,7 @@
 using AutoFixture;
 using Chrono.Graph.Adapter.Neo4j;
-using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Utilities;
-using Chrono.Graph.Notations;
-using Neo4j.Driver;
 using System.Diagnostics;
 
 namespace Chrono.Graph.Test.Integration
