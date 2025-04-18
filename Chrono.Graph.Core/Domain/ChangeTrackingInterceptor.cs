@@ -1,7 +1,7 @@
 ﻿using Castle.DynamicProxy;
 
 
-namespace Chrono.Graph.Adapter.Neo4j
+namespace Chrono.Graph.Core.Domain
 {
     public class ChangeTrackingInterceptor : IInterceptor
     {

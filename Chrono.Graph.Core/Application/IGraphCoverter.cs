@@ -1,4 +1,6 @@
-﻿namespace Chrono.Graph.Notations.Conversion
+﻿using Chrono.Graph.Core.Domain;
+
+namespace Chrono.Graph.Core.Application
 {
     public interface IGraphCoverter
     {

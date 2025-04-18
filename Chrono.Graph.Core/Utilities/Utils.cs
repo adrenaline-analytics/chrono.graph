@@ -1,12 +1,8 @@
 ﻿using Castle.DynamicProxy;
-using Chrono.Graph.Adapter.Neo4j;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using NanoidDotNet;
-using System.Collections;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.ComponentModel.Design;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -51,6 +47,8 @@ namespace Chrono.Graph.Core.Utilities
                 value.Length > 2048 ? value.Substring(0, 2048) : value,
                 CypherConstants.InvalidCharactersPattern, " ");
 
+        public static string ToTitleCase(this string value) =>
+            new CultureInfo("en-US", false).TextInfo.ToTitleCase(value);
         public static string StandardizeVariableName(string value) => ToCamelCase(StandardizeGraphString(value));
         public static string StandardizePropertyName(string value) => StandardizeNodeLabel(value);
         public static string StandardizeNodeLabel (string value) 

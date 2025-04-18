@@ -1,7 +1,6 @@
 ﻿using AutoFixture;
 using Chrono.Graph.Adapter.Neo4j;
 using Chrono.Graph.Core.Application;
-using NanoidDotNet;
 using Neo4j.Driver;
 
 namespace Chrono.Graph.Test.Integration

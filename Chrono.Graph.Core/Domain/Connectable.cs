@@ -1,6 +1,4 @@
-﻿using Chrono.Graph.Notations;
-
-namespace Chrono.Graph.Core.Domain
+﻿namespace Chrono.Graph.Core.Domain
 {
     public class Connectable
     {

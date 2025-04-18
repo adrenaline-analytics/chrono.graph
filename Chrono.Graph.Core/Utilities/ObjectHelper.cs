@@ -1,6 +1,6 @@
 ﻿using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
-using Chrono.Graph.Notations;
+using Chrono.Graph.Core.Notations;
 using System.Collections;
 using System.Reflection;
 using System.Text.Json;
@@ -27,13 +27,7 @@ namespace Chrono.Graph.Core.Utilities
         public static string GetPropertyLabel(PropertyInfo t)
         {
             var primitivity = GetPrimitivity(t.PropertyType);
-            if(!primitivity.HasFlag(GraphPrimitivity.Object))
-            {
-                return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
-
-            }
-            return GetObjectLabel(t.PropertyType);
-
+            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
         }
 
         //public static string GetObjectLabel(PropertyInfo t) => GetObjectLabel(t.PropertyType);

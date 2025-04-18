@@ -1,8 +1,9 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using Castle.Core.Internal;
+using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
+using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
-using Chrono.Graph.Notations;
 using Neo4j.Driver;
 using System.Reflection;
 
@@ -113,7 +114,8 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             if (transaction?.Factory != null)
             {
-                PutChildren(thing, transaction, depth, transaction.Factory);
+                //if you Put instead of Post here you will overwrite already existing objects
+                PostChildren(thing, transaction, depth, transaction.Factory);
                 await transaction.Execute();
             }
         }
@@ -282,6 +284,15 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 });
         }
+        /// <summary>
+        /// This should never be called.  Putting children means blindly overwriting existing data replacing properties with nulls
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="thing"></param>
+        /// <param name="transaction"></param>
+        /// <param name="depth"></param>
+        /// <param name="parentFactory"></param>
+        [Obsolete("Always post or patch children.  Putting children will overwrite data")]
         private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
@@ -354,7 +365,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             depth--;
 
             foreach (var prop in thing.GetType().GetProperties()
-                .Where(p => p.GetValue(thing) != null
+                .Where(p => p.GetAttribute<GraphIgnoreAttribute>() == null
+                    && p.GetValue(thing) != null
                     && (ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Object)
                         || ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Dictionary))
                     && !ObjectHelper.IsSerializable(p)))

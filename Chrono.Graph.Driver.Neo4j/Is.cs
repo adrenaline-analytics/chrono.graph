@@ -1,4 +1,4 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 
 namespace Chrono.Graph.Adapter.Neo4j

@@ -1,7 +1,7 @@
 ﻿using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Utilities;
 
-namespace Chrono.Graph.Notations
+namespace Chrono.Graph.Core.Domain
 {
     public class GraphEdgeDetails : GraphEdgeBasic
     {

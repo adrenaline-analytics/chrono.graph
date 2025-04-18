@@ -29,6 +29,32 @@ namespace Chrono.Graph.Adapter.Neo4j
                 cypherVar
             );
         }
+        private static object Instantiate(Type type, INode? node = null)
+        {
+            var instance = ObjectHelper.Instantiate(type);
+            if (node == null)
+                return instance;
+
+            var props = type.GetProperties();
+            var idProp = ObjectHelper.GetIdProp(type);
+            var id = node.Properties.FirstOrDefault(p => p.Key.ToLower() == idProp.Name.ToLower()).Value;
+            if (id != null)
+            {
+                if (_cache.TryGetValue(id, out var cached) && cached != null)
+                {
+                    if (cached.GetType() != type)
+                        throw new InvalidOperationException($"A cached version of this object [{type}] having id '{id}' is of a different type: {cached.GetType()}");
+
+                    return cached;
+                }
+                if(idProp.SetMethod != null)
+                    idProp.SetValue(instance, id);
+                _cache[id] = instance;
+            }
+
+            return instance;
+        }
+
         private static void Edges(IRecord record, CypherVar cypherVar)
         {
             if(!string.IsNullOrEmpty(cypherVar.Edge?.Var) && record.TryGetValue(cypherVar.Edge.Var, out var edgeRecord))
@@ -135,71 +161,6 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             }
         }
-        private static void Recurse(List<object?> instances, Type type, IRecord record, CypherVar cypherVar)
-        {
-            if (!TryReadNodes(record[cypherVar.Var], out var nodes))
-                throw new ArgumentException("Nodes unreadable");
-
-            foreach(var node in nodes)
-            {
-                var instance = Instantiate(type, node.First());
-                Recurse(instance, node.First(), record, cypherVar);
-                instances.Add(instance);
-            }
-        }
-        //private static object? Cache(object? instance)
-        //{
-
-        //    if (instance == null)
-        //        return null;
-
-        //    var idProp = ObjectHelper.GetIdProp(instance.GetType());
-        //    var id = idProp != null
-        //        ? idProp.GetValue(instance)
-        //        : instance.GetHashCode();
-        //    id = id ?? instance.GetHashCode();
-
-        //    if(_cache.TryGetValue(id, out var cached) && cached != null)
-        //    {
-        //        if(cached.GetType() != instance.GetType())
-        //            throw new InvalidOperationException($"A cached version of this object [{instance.GetType()}] having id '{id}' is of a different type: {cached.GetType()}");
-
-        //        foreach(var prop in cached.GetType().GetProperties())
-        //        {
-        //            var instanceVal = prop.GetValue(instance);
-        //            if(instanceVal != null)
-        //                prop.SetValue(cached, instanceVal);
-        //        }
-        //    }
-
-        //    _cache[id] = instance;
-        //    return _cache[id];
-        //}
-        private static object Instantiate(Type type, INode? node = null)
-        {
-            var instance = ObjectHelper.Instantiate(type);
-            if (node == null)
-                return instance;
-
-            var props = type.GetProperties();
-            var idProp = ObjectHelper.GetIdProp(type);
-            var id = node.Properties.FirstOrDefault(p => p.Key.ToLower() == idProp.Name.ToLower()).Value;
-            if (id != null)
-            {
-                if (_cache.TryGetValue(id, out var cached) && cached != null)
-                {
-                    if (cached.GetType() != type)
-                        throw new InvalidOperationException($"A cached version of this object [{type}] having id '{id}' is of a different type: {cached.GetType()}");
-
-                    return cached;
-                }
-                if(idProp.SetMethod != null)
-                    idProp.SetValue(instance, id);
-                _cache[id] = instance;
-            }
-
-            return instance;
-        }
         private static void Recurse(object? instance, INode? node, IRecord record, CypherVar cypherVar)
         {
             if (node == null || instance == null)
@@ -241,7 +202,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         var instances = Instantiate(listType);
                         var addMethod = listType.GetMethod("Add") ?? throw new ArgumentException("Object is not of type dictionary");
 
-                        Recurse(buffer, property.PropertyType.GenericTypeArguments[0], record, connectedVar.Value);
+                        Recurse(buffer, property.PropertyType.GenericTypeArguments[0], record, connectedVar.Value, node.ElementId);
                         foreach (var thing in buffer)
                             addMethod.Invoke(instances, [thing]);
 
@@ -326,6 +287,44 @@ namespace Chrono.Graph.Adapter.Neo4j
                 }
             }
         }
+        private static void Recurse(List<object?> instances, Type type, IRecord record, CypherVar cypherVar, string myNeo4JId)
+        {
+            // 1. Read all nodes for this level
+            if (!TryReadNodes(record[cypherVar.Var], out var nodes))
+                throw new ArgumentException("Nodes unreadable");
+
+            // 2. Collect valid Neo4j IDs from edge list, if defined
+            HashSet<string>? allowedNodeIds = null;
+            if (!string.IsNullOrEmpty(cypherVar.Edge?.Var) &&
+                record.TryGetValue(cypherVar.Var, out var currentNodeObj) &&
+                record.TryGetValue(cypherVar.Edge.Var, out var edgeRecordObj))
+            {
+
+                var edgeRecords = edgeRecordObj is List<object>
+                    ? edgeRecordObj.As<List<IRelationship>>()
+                    : new List<IRelationship> { edgeRecordObj.As<IRelationship>() };
+
+                allowedNodeIds = edgeRecords
+                    .Where(rel => rel.StartNodeElementId == myNeo4JId || rel.EndNodeElementId == myNeo4JId)
+                    .Select(rel => rel.StartNodeElementId == myNeo4JId ? rel.EndNodeElementId : rel.StartNodeElementId)
+                    .ToHashSet();
+            }
+
+            foreach (var nodeGroup in nodes)
+            {
+                var node = nodeGroup.First();
+                var nodeId = node.ElementId;
+
+                // 3. If there are valid edge constraints, skip any node not connected by an edge
+                if (allowedNodeIds != null && !allowedNodeIds.Contains(nodeId))
+                    continue;
+
+                var instance = Instantiate(type, node);
+                Recurse(instance, node, record, cypherVar);
+                instances.Add(instance);
+            }
+        }
+
 
         private static void Primitives(object? instance, INode? node)
         {

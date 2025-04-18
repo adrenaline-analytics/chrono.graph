@@ -113,6 +113,9 @@ class Program
                             appliedCount++;
                         }
                     }
+                });
+                await session.ExecuteWriteAsync(async tx =>
+                {
 
                     await tx.RunAsync(@"
                         CREATE (:ScriptRun {
@@ -189,7 +192,7 @@ class Program
         {
             var deleted = await session.ExecuteWriteAsync(async tx =>
             {
-                var res = await tx.RunAsync("MATCH (s:ScriptRun { name: $name }) DETACH DELETE s RETURN count(*) AS count", new { name = rollbackTarget });
+                var res = await tx.RunAsync("MATCH (s:ScriptRun { name: $name }) DETACH DELETE s RETURN count(*) AS count", new { name = $"{rollbackTarget}.cypher" });
                 var record = await res.SingleAsync();
                 return record["count"].As<int>();
             });
