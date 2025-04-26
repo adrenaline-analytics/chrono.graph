@@ -10,7 +10,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 {
     public class Neo4jJoiner : IJoiner
     {
-        public CypherVar RootVar { get; protected set; }
+        public CypherVar RootVar { get; protected set; } = new();
 
         private IJoiner JoinRoller<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner, bool optional) 
             => JoinRoller(operand.GetExpressionProperty(), clause, deepJoiner, optional);
@@ -20,7 +20,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var dicInfo = ObjectHelper.GetDictionaryInfo(member.PropertyType);
-                if (dicInfo.KeyType.IsEnum && member.GetCustomAttribute<GraphKeyLabellingAttribute>() != null)
+                if ((dicInfo?.KeyType?.IsEnum  ?? false) && member.GetCustomAttribute<GraphKeyLabellingAttribute>() != null)
                 {
                     foreach(var enumFieldLabel in ObjectHelper.GetDictionaryLabels(dicInfo, member))
                     {
@@ -55,7 +55,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             return this;
         }
 
-        public IJoiner Join<T, P>(Expression<Func<T, P>> operand) => Join(operand, new Clause(), _ => { });
+        public IJoiner Join<T, P>(Expression<Func<T, P?>> operand) => Join(operand, new Clause(), _ => { });
         public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Clause clause) => Join(operand, clause, _ => { });
         public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Action<IJoiner> deepJoiner) => Join(operand, new Clause(), deepJoiner);
         public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner) => JoinRoller(operand, clause, deepJoiner, false);
@@ -68,7 +68,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             if (depth > 0)
             {
-                foreach(var prop in RootVar.Type.GetProperties())
+                foreach(var prop in RootVar.Type?.GetProperties() ?? [])
                 {
                     var primitivity = ObjectHelper.GetPrimitivity(prop.PropertyType);
                     var serializable = ObjectHelper.IsSerializable(prop);

@@ -37,6 +37,9 @@ namespace Chrono.Graph.Core.Utilities
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var dic = GetDictionaryInfo(t);
+                if (dic.ValType == null)
+                    return "";
+
                 return GetObjectLabel(dic.ValType);
             }
             else if (primitivity.HasFlag(GraphPrimitivity.Array))
@@ -73,9 +76,9 @@ namespace Chrono.Graph.Core.Utilities
                 if (keyLabeling)
                 {
                     var dic = GetDictionaryInfo(propertyType);
-                    return dic.KeyType.IsEnum
+                    return dic.KeyType?.IsEnum ?? false
                         ? GetDictionaryLabels(dic, property).Any(keyLabel => Utils.StandardizeEdgeLabel(keyLabel) == Utils.StandardizeEdgeLabel(childEdgeLabel))
-                        : throw new NotImplementedException($"Key type [{dic.KeyType.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries");
+                        : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries");
                 }
                 else
                 {
@@ -92,9 +95,9 @@ namespace Chrono.Graph.Core.Utilities
                 : new Dictionary<string, string> { };
 
             var label = keyLabelling != null
-                 ? dic.KeyType.IsEnum
+                 ? dic.KeyType?.IsEnum ?? false
                     ? GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(keyString)[0], edgeAttribute => GenerateDictionaryPropertyLabel(edgeAttribute, prop, key))
-                    : throw new NotImplementedException($"Key type [{dic.KeyType.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
+                    : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
                 :  GenerateDictionaryPropertyLabel(null, prop, null);
 
 
@@ -115,10 +118,13 @@ namespace Chrono.Graph.Core.Utilities
                         ?? throw new Exception("Unable to determine Id");
 
         public static IList<string> GetDictionaryLabels(DictionaryInfo dic, PropertyInfo prop)
-            => dic.KeyType.IsEnum
+            => dic.KeyType?.IsEnum ?? false
                 ? Enum.GetValues(dic.KeyType).Cast<object?>()
                     .Select(key => GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(key?.ToString() ?? "")[0], a => GenerateDictionaryPropertyLabel(a, prop, key))).ToList()
-                : new List<string> { GetObjectLabel(dic.KeyType) };
+                : dic.KeyType == null 
+                    ? [] 
+                    : new List<string> { GetObjectLabel(dic.KeyType) };
+
         private static string GenerateDictionaryPropertyLabel(GraphEdgeAttribute? edgeAttribute, PropertyInfo prop, object? key) 
             => !string.IsNullOrEmpty(edgeAttribute?.Definition?.Label)
                 ? edgeAttribute.Definition.Label

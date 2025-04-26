@@ -209,11 +209,13 @@ namespace Chrono.Graph.Adapter.Neo4j
                 }
             );
         }
-        private void PostChild(object? thing, object o, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeBasic edge)
+        private void PostChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeBasic edge)
         {
 
-            var idProp = ObjectHelper.GetIdProp(o.GetType());
-            var idValue = idProp.GetValue(o);
+            if (parent == null)
+                return;
+            var idProp = ObjectHelper.GetIdProp(child.GetType());
+            var idValue = idProp.GetValue(child);
             var edgeDetails = new Func<GraphEdgeBasic, object, PropertyInfo, GraphEdgeDetails>((edge, o, prop) => edge != null
                 ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties }
                 : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? o.GetType().Name)
@@ -222,21 +224,21 @@ namespace Chrono.Graph.Adapter.Neo4j
             var matchable = idValue != null;
             if (matchable)
             {
-                parentFactory.MergeChild(thing, o,
-                    t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), o.GetType()),
-                    sub => sub.OnCreateSet(o),
-                    () => edgeDetails(edge, o, prop)
+                parentFactory.MergeChild(parent, child,
+                    t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
+                    sub => sub.OnCreateSet(child),
+                    () => edgeDetails(edge, child, prop)
                 );
             }
             else
             {
-                parentFactory.CreateChild(thing, o, prop,
+                parentFactory.CreateChild(parent, child, prop,
                     f => childFactory = (Neo4jFactory)f,
-                    () => edgeDetails(edge, o, prop)
+                    () => edgeDetails(edge, child, prop)
                 );
             }
         }
-        private void PatchChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
+        private void PatchChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
                 (o, prop, currentDepth, edge) =>
@@ -293,7 +295,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         /// <param name="depth"></param>
         /// <param name="parentFactory"></param>
         [Obsolete("Always post or patch children.  Putting children will overwrite data")]
-        private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
+        private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
                 (o, property, currentDepth, edge) =>

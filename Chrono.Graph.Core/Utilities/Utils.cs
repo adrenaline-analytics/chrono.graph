@@ -17,6 +17,7 @@ namespace Chrono.Graph.Core.Utilities
         public static object StandardizePropertyValue(object? value)
         {
             var primitivity = ObjectHelper.GetPrimitivity(value);
+            if (value == null) return new object() { };
             if (value is Guid guidValue) return guidValue.ToString();
             if (value is DateTime dateTimeValue) return dateTimeValue.ToString("o"); // Convert DateTime to ISO 8601 format
             if (value.GetType().IsEnum) return (int)value;
@@ -93,14 +94,14 @@ namespace Chrono.Graph.Core.Utilities
 
             throw new ArgumentException("Invalid expression");
         }
-        public static void Merge<T, TT>(this Dictionary<T, TT> dic1, IReadOnlyDictionary<T, TT> dic2)
+        public static void Merge<T, TT>(this Dictionary<T, TT> dic1, IReadOnlyDictionary<T, TT> dic2) where T : notnull
         {
             foreach(var injectable in dic2)
             {
                 if(!dic1.TryAdd(injectable.Key, injectable.Value))
                 {
                     var old = dic1[injectable.Key];
-                    if (!old.Equals(injectable.Value))
+                    if (!(old?.Equals(injectable.Value) ?? false))
                         Console.WriteLine($"Warning: This cypher key {injectable.Key} has been added already with a different value");
 
                 }
@@ -110,14 +111,17 @@ namespace Chrono.Graph.Core.Utilities
         public static string GetDescription<T>(this T thing) where T : struct
         {
             var type = thing.GetType();
-            var memberInfo = type.GetMember(thing.ToString());
+            var name = thing.ToString();
+            if (string.IsNullOrEmpty(name))
+                return "";
+            var memberInfo = type.GetMember(name);
             if (type.IsEnum && memberInfo.Length > 0)
             {
                 var attrs = memberInfo[0].GetCustomAttributes(typeof(DescriptionAttribute), false);
                 if (attrs.Length > 0)
                     return ((DescriptionAttribute)attrs[0]).Description;
             }
-            return thing.ToString();
+            return name;
         }
 
         private static string? _version = null;
@@ -148,7 +152,7 @@ namespace Chrono.Graph.Core.Utilities
 
             foreach (var property in typeof(T).GetProperties())
             {
-                if (property.CanWrite && property.CanRead && property.GetMethod.IsVirtual)
+                if (property.CanWrite && property.CanRead && (property.GetMethod?.IsVirtual ?? false))
                 {
                     var originalValue = property.GetValue(thing);
                     property.SetValue(proxy, originalValue);

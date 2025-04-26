@@ -370,13 +370,13 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
 
                 Statement.InVars.Merge(subStatements
-                    .SelectMany(s => s.InVars
-                        .Select(v => v))
+                    .SelectMany(s => s != null ? s.InVars
+                        .Select(v => v) : [])
                     .GroupBy(s => s.Key)
                     .ToDictionary(s => s.Key, s => s.Last().Value));
 
                 var subNodes = subStatements
-                    .Select(s => s.NodeCypher)
+                    .Select(s => s?.NodeCypher)
                     .Aggregate((a, b) => $"{a}\n{b}");
 
                 Statement.NodeCypher = !string.IsNullOrEmpty(subNodes)
@@ -385,13 +385,13 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 //null/empty checking is down stairs
                 Statement.EdgeCypher = subStatements
-                    .Select(s => s.EdgeCypher)
-                    .Aggregate((a, b) => $"{a}\n{b}");
+                    .Select(s => s?.EdgeCypher)
+                    .Aggregate((a, b) => $"{a}\n{b}") ?? "";
 
             }
 
             var edges = string.Empty;
-            if (InboundEdges.Any())
+            if (InboundEdges.Count != 0)
             {
                 edges = InboundEdges
                     .SelectMany(d => d.Value
@@ -431,35 +431,38 @@ namespace Chrono.Graph.Adapter.Neo4j
 
         public void Create(object? thing)
         {
-            var dict = GeneratePropertiesDict(thing);
-            var prefix = "create";
-            var label = ObjectHelper.GetObjectLabel(thing.GetType());
-            var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}");
+            if (thing != null)
+            {
+                var dict = GeneratePropertiesDict(thing);
+                var prefix = "create";
+                var label = ObjectHelper.GetObjectLabel(thing.GetType());
+                var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}");
 
-            Statement.InVars.Merge(dict.ToDictionary(
-                i => makeKey(i.Key),
-                i => new CypherVar
-                {
-                    Object = i.Value,
-                    Var = makeKey(i.Key),
-                }));
+                Statement.InVars.Merge(dict.ToDictionary(
+                    i => makeKey(i.Key),
+                    i => new CypherVar
+                    {
+                        Object = i.Value,
+                        Var = makeKey(i.Key),
+                    }));
 
-            Statement.OutVars.Add(RootVar.Var,
-                new CypherVar
-                {
-                    GraphType = GraphObjectType.Node,
-                    Label = label,
-                    Var = RootVar.Var,
-                });
+                Statement.OutVars.Add(RootVar.Var,
+                    new CypherVar
+                    {
+                        GraphType = GraphObjectType.Node,
+                        Label = label,
+                        Var = RootVar.Var,
+                    });
 
-            Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {label} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
+                Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {label} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
+            }
         }
 
         public void CreateChild(object? parent, object? child, PropertyInfo? prop) => CreateChild(parent, child, prop, f => { });
         public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder)
-            => CreateChild(parent, child, prop, builder, prop?.Name ?? child.GetType().Name);
+            => CreateChild(parent, child, prop, builder, prop?.Name ?? child?.GetType().Name ?? "");
         public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, string label)
-            => CreateChild(parent, child, prop, builder, () => ObjectHelper.GetPropertyEdge(prop, label: label));
+            => CreateChild(parent, child, prop, builder, () => ObjectHelper.GetPropertyEdge(prop ?? throw new ArgumentException("A property info object is required to create a child object"), label: label));
         public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner)
         {
             if (child == null || parent == null)
@@ -488,12 +491,12 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void Delete() => Delete(Statement.OutVars.FirstOrDefault().Value);
         public void Delete(CypherVar outVar) => Statement.Deletes = [.. Statement.Deletes, outVar.Var];
 
-        public void HotLink<TT>(string verb, TT to)
+        public void HotLink<TT>(string verb, TT to) where TT : notnull
         {
             var idProp = ObjectHelper.GetIdProp(to.GetType());
             HotLink(verb, to, c => c.Where(idProp.Name, Is.Equal(idProp.GetValue(to)), to.GetType()));
         }
-        public void HotLink<TT>(string verb, TT to, Action<IQueryClause> clause)
+        public void HotLink<TT>(string verb, TT to, Action<IQueryClause> clause) where TT : notnull
         {
 
         }
@@ -541,7 +544,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             //ConnectEdges(parentFactory, subFactory, edgeDefiner);
         //}
         public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
-        public void MergeChild<A, B>(A parent, B child, PropertyInfo connectedProperty, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder)
+        public void MergeChild<A, B>(A parent, B child, PropertyInfo connectedProperty, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder) where A : notnull
             => MergeChild(parent, child, clauser, builder,
                 () => {
                         var attr = connectedProperty.GetCustomAttribute<GraphEdgeAttribute>()?.Definition
@@ -552,7 +555,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                             Direction = attr != null ? attr.Direction : GraphEdgeDirection.Out
                         };
                     });
-        public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner)
+        public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner) where A : notnull
         {
             if(GlobalObjectRegistry.TryGetValue(parent.GetHashCode(), out var parentFactory))
             {
@@ -564,8 +567,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             }
         }
 
-        public void OnCreateSet<T>(T thing) => GenerateOnAnythingStatement(thing, CypherConstants.CreateCommand, false);
-        public void OnMatchSet<T>(T thing, bool idempotent) => GenerateOnAnythingStatement(thing, CypherConstants.MatchCommand, idempotent);
+        public void OnCreateSet<T>(T thing) where T : notnull => GenerateOnAnythingStatement(thing, CypherConstants.CreateCommand, false);
+        public void OnMatchSet<T>(T thing, bool idempotent) where T : notnull => GenerateOnAnythingStatement(thing, CypherConstants.MatchCommand, idempotent);
 
         public void OptionalMatch<T>(T thing, bool idempotent) => throw new NotImplementedException();
 
@@ -582,7 +585,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             RootVar.Connections.Recurse(outVars.Enqueue);
             RootVar.Connections.Recurse(t => {
-                var primitivity = ObjectHelper.GetPrimitivity(t.Type);
+                var primitivity = ObjectHelper.GetPrimitivity(t.Type ?? throw new ArgumentException("Cannot determine primitivity of a null type"));
                 connectedVars.Enqueue(primitivity.HasFlag(GraphPrimitivity.Array) ? $"COLLECT({t.Var}) AS {t.Var}" : t.Var);
                 if (!string.IsNullOrEmpty(t.Edge?.Var))
                     connectedVars.Enqueue(primitivity.HasFlag(GraphPrimitivity.Array) ? $"COLLECT({t.Edge.Var}) AS {t.Edge.Var}" : t.Edge.Var);

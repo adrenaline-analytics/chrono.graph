@@ -22,7 +22,8 @@ namespace Chrono.Graph.Core.Domain
                          .GetValue(invocation.InvocationTarget);
 
                     // Track original value
-                    _originalValues[propertyName] = currentValue;
+                    if(currentValue != null) 
+                        _originalValues[propertyName] = currentValue;
                 }
             }
 
