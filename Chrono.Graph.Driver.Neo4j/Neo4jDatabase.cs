@@ -92,10 +92,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public Task Put<T>(T thing, int depth) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), depth);
         public Task Put<T>(T thing, PropertyInfo idProp, int depth) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
             return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
         }
         public async Task Put<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
@@ -126,10 +123,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public Task Patch<T>(T thing, Action<IQueryClause> clauser) where T : class => Patch(thing, clauser, 1);
         public async Task Patch<T>(T thing, PropertyInfo idProp, int depth) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
             await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
         }
         public async Task Patch<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
@@ -160,10 +154,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public async Task Delete<T>(T thing) where T : class => await Delete(thing, ObjectHelper.GetIdProp<T>());
         public async Task Delete<T>(T thing, PropertyInfo idProp) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be deleted without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be deleted without an identifier.  Why come it's unscannable?");
             await Delete<T>(q => q.Where<T>(idProp.Name, Is.Equal(val)));
 
         }

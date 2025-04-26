@@ -12,9 +12,9 @@ namespace Chrono.Graph.Adapter.Neo4j
     {
         public CypherVar RootVar { get; protected set; } = new();
 
-        private IJoiner JoinRoller<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner, bool optional) 
+        private Neo4jJoiner JoinRoller<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner, bool optional) 
             => JoinRoller(operand.GetExpressionProperty(), clause, deepJoiner, optional);
-        private IJoiner JoinRoller(PropertyInfo member, Clause clause, Action<IJoiner> deepJoiner, bool optional)
+        private Neo4jJoiner JoinRoller(PropertyInfo member, Clause clause, Action<IJoiner> deepJoiner, bool optional)
         {
             var primitivity = ObjectHelper.GetPrimitivity(member.PropertyType);
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))

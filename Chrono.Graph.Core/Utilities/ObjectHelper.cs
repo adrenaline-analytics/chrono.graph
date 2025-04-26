@@ -56,7 +56,7 @@ namespace Chrono.Graph.Core.Utilities
         public static string GetLabel<T>(MemberInfo t, Func<T?, string> valueFactory) where T : Attribute
         {
             var attrs = t.GetCustomAttributes(typeof(T), false);
-            var any = attrs?.Any() ?? false;
+            var any = (attrs?.Length ?? 0) > 0;
             if (!any)
                 return valueFactory(null);
 
@@ -92,7 +92,7 @@ namespace Chrono.Graph.Core.Utilities
             var keyString = key?.ToString() ?? "";
             var properties = key != null && !string.IsNullOrEmpty(keyString)
                 ? new Dictionary<string, string> { { "key", keyString }, { "enum", ((int)key).ToString() } }
-                : new Dictionary<string, string> { };
+                : [];
 
             var label = keyLabelling != null
                  ? dic.KeyType?.IsEnum ?? false
@@ -110,7 +110,7 @@ namespace Chrono.Graph.Core.Utilities
 
         public static PropertyInfo GetIdProp<T>() => GetIdProp(typeof(T));
         public static PropertyInfo GetIdProp(Type t) => t.GetRuntimeProperties()
-            .Where(a => a.GetCustomAttributes(typeof(GraphIdentifierAttribute), false).Any())
+            .Where(a => a.GetCustomAttributes(typeof(GraphIdentifierAttribute), false).Length > 0)
             .FirstOrDefault()
                 ?? t.GetRuntimeProperties()
                     .Where(a => a.Name.ToLower() == "id")
@@ -123,7 +123,7 @@ namespace Chrono.Graph.Core.Utilities
                     .Select(key => GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(key?.ToString() ?? "")[0], a => GenerateDictionaryPropertyLabel(a, prop, key))).ToList()
                 : dic.KeyType == null 
                     ? [] 
-                    : new List<string> { GetObjectLabel(dic.KeyType) };
+                    : [GetObjectLabel(dic.KeyType)];
 
         private static string GenerateDictionaryPropertyLabel(GraphEdgeAttribute? edgeAttribute, PropertyInfo prop, object? key) 
             => !string.IsNullOrEmpty(edgeAttribute?.Definition?.Label)

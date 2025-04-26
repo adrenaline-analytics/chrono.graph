@@ -12,15 +12,15 @@ namespace Chrono.Graph.Adapter.Neo4j
 
     public class Neo4jFactory : Neo4jJoiner, IQueryFactory
     {
-        private Dictionary<string, ISubQueryFactory> _subFactories = new Dictionary<string, ISubQueryFactory>();
+        private Dictionary<string, ISubQueryFactory> _subFactories = [];
 
         public string Hash { get; private set; }
         public bool Locked { get; private set; }
 
         public Statement Statement { get; set; }
-        public Dictionary<string, Clause> Clauses { get; set; } = new Dictionary<string, Clause>();
-        public IEnumerable<ClauseGroup> SubClauses { get; set; } = new List<ClauseGroup>();
-        public Dictionary<string, HashSet<GraphEdgeBasic>> InboundEdges { get; set; } = new Dictionary<string, HashSet<GraphEdgeBasic>>();
+        public Dictionary<string, Clause> Clauses { get; set; } = [];
+        public IEnumerable<ClauseGroup> SubClauses { get; set; } = [];
+        public Dictionary<string, HashSet<GraphEdgeBasic>> InboundEdges { get; set; } = [];
         public Dictionary<int, IQueryFactory> GlobalObjectRegistry { get; } = [];
 
         private Neo4jFactory(Statement statement, int hash, Dictionary<int, IQueryFactory> objectRegistry)
@@ -41,7 +41,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             => thing != null && registry.TryGetValue(thing.GetHashCode(), out var factory)
                 ? factory
                 : BootstrapWithCreate(thing, prop, registry);
-        private static IQueryFactory ConnectChildWithMatch<T>(T thing, Action<IQueryClause> clauser, Dictionary<int, IQueryFactory> registry)
+        private static Neo4jFactory ConnectChildWithMatch<T>(T thing, Action<IQueryClause> clauser, Dictionary<int, IQueryFactory> registry)
         {
             if (thing == null)
                 throw new DataMisalignedException("Cannot determine object type");
@@ -57,11 +57,11 @@ namespace Chrono.Graph.Adapter.Neo4j
                 ? factory
                 : BootstrapStatement(CypherConstants.MergeCommand, clauser, thing.GetType(), registry, thing.GetHashCode());
         }
-        private static IQueryFactory BootstrapStatement<T>(string command, Action<IQueryClause> clauser, int? hash = null) => BootstrapStatement(command, clauser, typeof(T), hash);
-        private static IQueryFactory BootstrapStatement(string command, Action<IQueryClause> clauser, Type type, int? hash = null) => BootstrapStatement(command, clauser, type, [], hash);
-        private static IQueryFactory BootstrapStatement(string command, Action<IQueryClause> clauser, Type type, Dictionary<int, IQueryFactory> registry, int? hash = null)
+        private static Neo4jFactory BootstrapStatement<T>(string command, Action<IQueryClause> clauser, int? hash = null) => BootstrapStatement(command, clauser, typeof(T), hash);
+        private static Neo4jFactory BootstrapStatement(string command, Action<IQueryClause> clauser, Type type, int? hash = null) => BootstrapStatement(command, clauser, type, [], hash);
+        private static Neo4jFactory BootstrapStatement(string command, Action<IQueryClause> clauser, Type type, Dictionary<int, IQueryFactory> registry, int? hash = null)
         {
-            hash = hash ?? new Random().Next(1, 2000000000);
+            hash ??= new Random().Next(1, 2000000000);
             var statement = new Statement();
 
             var factory = new Neo4jFactory(statement, hash.Value, registry);
@@ -78,7 +78,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             statement.Commands = [.. statement.Commands, command];
             return factory;
         }
-        private static IQueryFactory BootstrapWithCreate<T>(T thing, PropertyInfo? prop, Dictionary<int, IQueryFactory> registry)
+        private static Neo4jFactory BootstrapWithCreate<T>(T thing, PropertyInfo? prop, Dictionary<int, IQueryFactory> registry)
         {
             var statement = new Statement();
 
@@ -128,7 +128,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     Label = label,
                     Var = factory.RootVar.Var
                 });
-            var properties = vars.Any()
+            var properties = vars.Count > 0
                 ? $" {{{vars.Select(i => $"{i.Key}:${prefix}{i.Key}{factory.Hash}").Aggregate((a, b) => $"{a}, {b}")}}}"
                 : "";
             statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {label}{properties})"];
@@ -157,11 +157,11 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             if (them.Statement != null)
                 me.Statement += them.Statement;
-            if (them.Clauses?.Any() ?? false)
+            if (them.Clauses != null && them.Clauses.Count > 0)
                 me.Clauses.Merge(them.Clauses);
             if (them.SubClauses?.Any() ?? false)
                 me.SubClauses = them.SubClauses.Union(them.SubClauses);
-            if (them.InboundEdges?.Any() ?? false)
+            if (them.SubClauses != null && them.InboundEdges?.Count > 0)
                 me.InboundEdges.Merge(them.InboundEdges);
         }
 
@@ -169,7 +169,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal void GenerateOnAnythingStatement(object thing, string onWhat, bool idempotent)
         {
             var injectables = GeneratePropertiesDict(thing);
-            if (!injectables.Any())
+            if (injectables.Count == 0)
                 return;
 
             var prefix = onWhat.ToLower();
@@ -179,7 +179,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (idempotent && onWhat == CypherConstants.MatchCommand)
             {
                 var deletables = GeneratePropertyNullsDict(thing);
-                if (deletables.Any())
+                if (deletables.Length > 0)
                     Statement.DoOns[CypherConstants.RemoveCommand] = $"{CypherConstants.RemoveCommand}\n\t{deletables.Select(i => $"{RootVar.Var}.{i}").Aggregate((a, b) => $"{a},\n\t{b}")}";
             }
 
@@ -190,11 +190,11 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal Dictionary<string, Clause> RecurseSubClausesForVars(IEnumerable<ClauseGroup>? clauseGroups)
         {
             var result = new Dictionary<string, Clause>();
-            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => c.Clauses?.Any() ?? false))
+            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 result.Merge(clauseGroup.Clauses);
                 var subVars = RecurseSubClausesForVars(clauseGroup.SubClauses);
-                if (subVars.Any())
+                if (subVars.Count > 0)
                     result.Merge(subVars);
             }
             return result;
@@ -202,7 +202,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal string RecurseSubClausesForQuery(IEnumerable<ClauseGroup>? clauseGroups)
         {
             var result = new List<string>();
-            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => c.Clauses?.Any() ?? false))
+            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0 ))
             {
                 var values = clauseGroup.Clauses
                         .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
@@ -213,7 +213,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 result.Add(values);
             }
-            return result.Any() ? result.Aggregate((a, b) => $"{a}, {b}") : "";
+            return result.Count > 0 ? result.Aggregate((a, b) => $"{a}, {b}") : "";
         }
         internal string GenerateMatchishStatement(Type type)
         {
@@ -229,7 +229,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     Var = makeKey(c.Key)
                 }));
 
-            if (SubClauses.Any(c => c.Clauses?.Any() ?? false))
+            if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 var subMatchClause = RecurseSubClausesForQuery(SubClauses);
                 var subVars = RecurseSubClausesForVars(SubClauses);
@@ -330,7 +330,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 ? "CREATE"
                 : "MERGE";
 
-            var comandStack = Statement.Commands.Any()
+            var comandStack = Statement.Commands.Length > 0
                 ? Statement.Commands.Aggregate((a, b) => $"{a}\n{b}")
                 : throw new NotImplementedException("A commandless command is not yet implemented");
 
@@ -366,7 +366,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 .Where(subStatement => subStatement != null)
                 .ToList(); //Enumeration is important here for Build() to occur before the next line in each subfactory
 
-            if (subStatements.Any())
+            if (subStatements.Count > 0)
             {
 
                 Statement.InVars.Merge(subStatements
@@ -398,7 +398,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         .Select((edge, index) => {
                             var edgeVar = $"edge{Hash}{d.Key}{index}";
                             var edgeLabel = Utils.StandardizeEdgeLabel(edge.Label);
-                            var edgeProperties = edge.Properties.Any()
+                            var edgeProperties = edge.Properties.Count > 0
                                 ? $" {{{edge.Properties.Select(p => $"{p.Key}:\"{p.Value}\"").Aggregate((a, b) => $"{a},{b}")}}}"
                                 : "";
 
@@ -503,7 +503,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void Match<T>(T thing, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void Match<T>(T thing, string label, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void Match<T>(T thing, PropertyInfo property, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
-        public void Match(CypherVar cypherVar) => Match(new List<CypherVar>() { cypherVar });
+        public void Match(CypherVar cypherVar) => Match([cypherVar]);
         public void Match(IEnumerable<CypherVar> cypherVars)
         {
             foreach (var v in cypherVars)
@@ -513,7 +513,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 if (!string.IsNullOrEmpty(varString))
                     Statement.Commands = [.. Statement.Commands, varString];
 
-                if (v.Connections.Any())
+                if (v.Connections.Count > 0)
                     Match(v.Connections.Select(c => c.Value));
             }
         }

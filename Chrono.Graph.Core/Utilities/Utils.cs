@@ -24,7 +24,7 @@ namespace Chrono.Graph.Core.Utilities
             if (primitivity.HasFlag(GraphPrimitivity.Array))
             {
                 var typeArgs = value.GetType().GetGenericArguments();
-                if (typeArgs.Any())
+                if (typeArgs.Length > 0)
                 {
                     var generic = typeArgs.First();
                     if (generic.IsEnum)
@@ -58,14 +58,14 @@ namespace Chrono.Graph.Core.Utilities
             : new CultureInfo("en-US", false).TextInfo
                 .ToTitleCase(
                     Regex.Replace(
-                        value.Length > 2048 ? value.Substring(0, 2048) : value, 
+                        value.Length > 2048 ? value[..2048] : value, 
                         CypherConstants.InvalidCharactersPattern, " ")
                     .ToLower())
                 .Replace(" ", "");
 
         public static string StandardizeEdgeLabel (string value) 
             => Regex.Replace(
-                value.Length > 2048 ? value.Substring(0, 2048) : value, 
+                value.Length > 2048 ? value[..2048] : value, 
                 CypherConstants.InvalidCharactersPattern, "_")
             .ToUpper();
         public static string Id(string? existing = null) => string.IsNullOrEmpty(existing) || existing.Length != CypherConstants.SafeIdLength ? Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength) : existing;
@@ -75,7 +75,7 @@ namespace Chrono.Graph.Core.Utilities
             foreach(var record in dic)
             {
                 doWhatWithTheChildren(record.Value);
-                if (record.Value.Connections?.Any() ?? false)
+                if (record.Value.Connections != null && record.Value.Connections.Count > 0)
                     Recurse(record.Value.Connections, doWhatWithTheChildren);
             }
         }
@@ -133,7 +133,7 @@ namespace Chrono.Graph.Core.Utilities
                 return _version;
             }
         }
-        public static string ToCamelCase(string phrase) => char.ToLowerInvariant(phrase[0]) + phrase.Substring(1);
+        public static string ToCamelCase(string phrase) => char.ToLowerInvariant(phrase[0]) + phrase[1..];
 
         /// <summary>
         /// WARNING: Every property must be marked virtual to be tracked this way.  
