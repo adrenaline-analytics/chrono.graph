@@ -3,6 +3,11 @@
     public class Counter
     {
         public Counter() { }
+        public Counter(long? runTime, long? runTicks)
+        {
+            RunTime = runTime;
+            RunTicks = runTicks;
+        }
         public Counter(long? runTime)
         {
             RunTime = runTime;

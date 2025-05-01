@@ -92,10 +92,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public Task Put<T>(T thing, int depth) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), depth);
         public Task Put<T>(T thing, PropertyInfo idProp, int depth) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
             return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
         }
         public async Task Put<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
@@ -126,10 +123,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public Task Patch<T>(T thing, Action<IQueryClause> clauser) where T : class => Patch(thing, clauser, 1);
         public async Task Patch<T>(T thing, PropertyInfo idProp, int depth) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
             await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
         }
         public async Task Patch<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
@@ -160,10 +154,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public async Task Delete<T>(T thing) where T : class => await Delete(thing, ObjectHelper.GetIdProp<T>());
         public async Task Delete<T>(T thing, PropertyInfo idProp) where T : class
         {
-            var val = idProp.GetValue(thing);
-            if (val == null)
-                throw new AmbiguousMatchException("An object was attempting to be deleted without an identifier.  Why come it's unscannable?");
-
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be deleted without an identifier.  Why come it's unscannable?");
             await Delete<T>(q => q.Where<T>(idProp.Name, Is.Equal(val)));
 
         }
@@ -209,11 +200,13 @@ namespace Chrono.Graph.Adapter.Neo4j
                 }
             );
         }
-        private void PostChild(object? thing, object o, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeBasic edge)
+        private void PostChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeBasic edge)
         {
 
-            var idProp = ObjectHelper.GetIdProp(o.GetType());
-            var idValue = idProp.GetValue(o);
+            if (parent == null)
+                return;
+            var idProp = ObjectHelper.GetIdProp(child.GetType());
+            var idValue = idProp.GetValue(child);
             var edgeDetails = new Func<GraphEdgeBasic, object, PropertyInfo, GraphEdgeDetails>((edge, o, prop) => edge != null
                 ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties }
                 : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? o.GetType().Name)
@@ -222,21 +215,21 @@ namespace Chrono.Graph.Adapter.Neo4j
             var matchable = idValue != null;
             if (matchable)
             {
-                parentFactory.MergeChild(thing, o,
-                    t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), o.GetType()),
-                    sub => sub.OnCreateSet(o),
-                    () => edgeDetails(edge, o, prop)
+                parentFactory.MergeChild(parent, child,
+                    t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
+                    sub => sub.OnCreateSet(child),
+                    () => edgeDetails(edge, child, prop)
                 );
             }
             else
             {
-                parentFactory.CreateChild(thing, o, prop,
+                parentFactory.CreateChild(parent, child, prop,
                     f => childFactory = (Neo4jFactory)f,
-                    () => edgeDetails(edge, o, prop)
+                    () => edgeDetails(edge, child, prop)
                 );
             }
         }
-        private void PatchChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
+        private void PatchChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
                 (o, prop, currentDepth, edge) =>
@@ -293,7 +286,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         /// <param name="depth"></param>
         /// <param name="parentFactory"></param>
         [Obsolete("Always post or patch children.  Putting children will overwrite data")]
-        private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
+        private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
         {
             RecurseChildren(thing, transaction, depth, parentFactory,
                 (o, property, currentDepth, edge) =>

@@ -22,7 +22,7 @@ namespace Chrono.Graph.Core.Application
         void Merge<T>(T thing, PropertyInfo property, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
 
         void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
-        void MergeChild<A, B>(A parent, B child, PropertyInfo property, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
+        void MergeChild<A, B>(A parent, B child, PropertyInfo property, Action<IQueryClause> clausation, Action<ISubQueryFactory> build) where A : notnull;
 
         void Match<T>(T thing, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
         void Match<T>(T thing, string label, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
@@ -44,7 +44,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="idempotent">If null values are present on thing properties, delete them from the graph object - 
         /// forcing full overwrite & idempotency</param>
         void OptionalMatch<T>(T thing, bool idempotent);
-        void OnCreateSet<T>(T thing);
+        void OnCreateSet<T>(T thing) where T : notnull;
 
         /// <summary>
         /// Create cypher commands for a match statement
@@ -53,10 +53,10 @@ namespace Chrono.Graph.Core.Application
         /// <param name="thing"></param>
         /// <param name="idempotent">If null values are present on thing properties, delete them from the graph object - 
         /// forcing full overwrite & idempotency</param>
-        void OnMatchSet<T>(T thing, bool idempotent);
+        void OnMatchSet<T>(T thing, bool idempotent) where T : notnull;
         void Match(IEnumerable<CypherVar> cypherVars);
         void Match(CypherVar cypherVar);
-        void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner);
+        void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner) where A : notnull;
     }
 
 }

@@ -1,4 +1,5 @@
-﻿using NanoidDotNet;
+﻿using Chrono.Graph.Core.Constant;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Test.Integration
 {

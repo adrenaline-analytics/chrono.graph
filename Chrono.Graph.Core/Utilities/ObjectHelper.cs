@@ -37,6 +37,9 @@ namespace Chrono.Graph.Core.Utilities
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var dic = GetDictionaryInfo(t);
+                if (dic.ValType == null)
+                    return "";
+
                 return GetObjectLabel(dic.ValType);
             }
             else if (primitivity.HasFlag(GraphPrimitivity.Array))
@@ -53,7 +56,7 @@ namespace Chrono.Graph.Core.Utilities
         public static string GetLabel<T>(MemberInfo t, Func<T?, string> valueFactory) where T : Attribute
         {
             var attrs = t.GetCustomAttributes(typeof(T), false);
-            var any = attrs?.Any() ?? false;
+            var any = (attrs?.Length ?? 0) > 0;
             if (!any)
                 return valueFactory(null);
 
@@ -73,9 +76,9 @@ namespace Chrono.Graph.Core.Utilities
                 if (keyLabeling)
                 {
                     var dic = GetDictionaryInfo(propertyType);
-                    return dic.KeyType.IsEnum
+                    return dic.KeyType?.IsEnum ?? false
                         ? GetDictionaryLabels(dic, property).Any(keyLabel => Utils.StandardizeEdgeLabel(keyLabel) == Utils.StandardizeEdgeLabel(childEdgeLabel))
-                        : throw new NotImplementedException($"Key type [{dic.KeyType.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries");
+                        : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries");
                 }
                 else
                 {
@@ -89,12 +92,12 @@ namespace Chrono.Graph.Core.Utilities
             var keyString = key?.ToString() ?? "";
             var properties = key != null && !string.IsNullOrEmpty(keyString)
                 ? new Dictionary<string, string> { { "key", keyString }, { "enum", ((int)key).ToString() } }
-                : new Dictionary<string, string> { };
+                : [];
 
             var label = keyLabelling != null
-                 ? dic.KeyType.IsEnum
+                 ? dic.KeyType?.IsEnum ?? false
                     ? GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(keyString)[0], edgeAttribute => GenerateDictionaryPropertyLabel(edgeAttribute, prop, key))
-                    : throw new NotImplementedException($"Key type [{dic.KeyType.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
+                    : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
                 :  GenerateDictionaryPropertyLabel(null, prop, null);
 
 
@@ -107,7 +110,7 @@ namespace Chrono.Graph.Core.Utilities
 
         public static PropertyInfo GetIdProp<T>() => GetIdProp(typeof(T));
         public static PropertyInfo GetIdProp(Type t) => t.GetRuntimeProperties()
-            .Where(a => a.GetCustomAttributes(typeof(GraphIdentifierAttribute), false).Any())
+            .Where(a => a.GetCustomAttributes(typeof(GraphIdentifierAttribute), false).Length > 0)
             .FirstOrDefault()
                 ?? t.GetRuntimeProperties()
                     .Where(a => a.Name.ToLower() == "id")
@@ -115,10 +118,13 @@ namespace Chrono.Graph.Core.Utilities
                         ?? throw new Exception("Unable to determine Id");
 
         public static IList<string> GetDictionaryLabels(DictionaryInfo dic, PropertyInfo prop)
-            => dic.KeyType.IsEnum
+            => dic.KeyType?.IsEnum ?? false
                 ? Enum.GetValues(dic.KeyType).Cast<object?>()
                     .Select(key => GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(key?.ToString() ?? "")[0], a => GenerateDictionaryPropertyLabel(a, prop, key))).ToList()
-                : new List<string> { GetObjectLabel(dic.KeyType) };
+                : dic.KeyType == null 
+                    ? [] 
+                    : [GetObjectLabel(dic.KeyType)];
+
         private static string GenerateDictionaryPropertyLabel(GraphEdgeAttribute? edgeAttribute, PropertyInfo prop, object? key) 
             => !string.IsNullOrEmpty(edgeAttribute?.Definition?.Label)
                 ? edgeAttribute.Definition.Label

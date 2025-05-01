@@ -3,7 +3,7 @@
     public class Countdown : Counter
     {
         public Countdown() : base() { }
-        public Countdown(long? runTime) : base(runTime) { }
+        public Countdown(long? runTime, long? runTicks) : base(runTime, runTicks) { }
         public float? LastKnownRemainingTime { get; set; }
     }
 }
