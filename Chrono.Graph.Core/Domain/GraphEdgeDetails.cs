@@ -9,8 +9,8 @@ namespace Chrono.Graph.Core.Domain
 
         public string Hash { get; } = Utils.CypherId();
         public override string Label { get => Utils.StandardizeEdgeLabel(_label); set => _label = value; }
-        public GraphEdgeDirection Direction { get; set; } = GraphEdgeDirection.Out;
         public string Var { get => Utils.StandardizeVariableName($"edge{_label ?? ""}{Hash}"); }
         public bool? Optional { get; set; }
+        public GraphEdgeDirection Direction { get; set; } = GraphEdgeDirection.Out;
     }
 }

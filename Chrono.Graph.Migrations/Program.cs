@@ -10,7 +10,7 @@ class Program
             PrintHelp();
             return;
         }
-
+        
         var db = GetArg(args, "--db=") ?? Environment.GetEnvironmentVariable("NEO4J_DATABASE") ?? "neo4j";
         var uri = GetArg(args, "--uri=") ?? Environment.GetEnvironmentVariable("NEO4J_URI") ?? "bolt://localhost:7687";
         var user = GetArg(args, "--user=") ?? Environment.GetEnvironmentVariable("NEO4J_USER") ?? "neo4j";

@@ -291,7 +291,7 @@ namespace Chrono.Graph.Test.Integration
         public async Task PostDictionaryEdgeDefinitionsWithCustomLabels()
         {
             var thing = new HowDictionaryEdgesWork();
-            await _db.Post(thing, 3);
+            await _db.Post(thing, j => j.JoinAllChildrenRecursive(3));
             var oThing = await _db.Get<HowDictionaryEdgesWork>(q => q.Where<HowDictionaryEdgesWork, string>(t => t.Word, Is.Equal(thing.Word)), q =>
             {
                 q.Join<HowDictionaryEdgesWork, Dictionary<EdgeLabeledEnum, Stuff>>(t => t.EdgeValStuff);
@@ -345,14 +345,14 @@ namespace Chrono.Graph.Test.Integration
                 Locations = [hq, spotTwo]
                 
             };
-            await _db.Put(org, 5);
+            await _db.Put(org, j => j.JoinAllChildrenRecursive(5));
 
         }
         [Fact]
         public async Task AddressChildObjectsFullyEdgeTogether()
         {
             var address = TestUtils.MakeAddress();
-            await _db.Put(address, 15);
+            await _db.Put(address, j => j.JoinAllChildrenRecursive(15));
 
         }
         [Fact]

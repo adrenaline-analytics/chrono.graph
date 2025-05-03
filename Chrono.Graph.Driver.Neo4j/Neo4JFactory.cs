@@ -99,16 +99,16 @@ namespace Chrono.Graph.Adapter.Neo4j
             //on match set {} //do nothing
             //on create
 
-            var label = prop == null
+            var nodeLabel = prop == null
                 ? ObjectHelper.GetObjectLabel(thing.GetType())
-                : ObjectHelper.GetPropertyLabel(prop);
+                : ObjectHelper.GetObjectLabel(prop);
 
             factory.RootVar = new CypherVar
             {
                 Hash = factory.Hash,
                 Object = thing,
                 Type = thing.GetType(),
-                Label = label,
+                Label = nodeLabel,
                 GraphType = GraphObjectType.Node
             };
 
@@ -125,13 +125,13 @@ namespace Chrono.Graph.Adapter.Neo4j
                 new CypherVar
                 {
                     GraphType = GraphObjectType.Node,
-                    Label = label,
+                    Label = nodeLabel,
                     Var = factory.RootVar.Var
                 });
             var properties = vars.Count > 0
                 ? $" {{{vars.Select(i => $"{i.Key}:${prefix}{i.Key}{factory.Hash}").Aggregate((a, b) => $"{a}, {b}")}}}"
                 : "";
-            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {label}{properties})"];
+            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {nodeLabel}{properties})"];
 
             return factory;
 
@@ -284,10 +284,23 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal string GenerateVarString(CypherVar cypherVar) =>
             cypherVar.Connections.Any(c => c.Value?.Edge != null)
                 ? cypherVar.Connections
-                    .Select(c => $"{(c.Value?.Edge?.Optional ?? false ? CypherConstants.OptionalMatchCommand : CypherConstants.MatchCommand)} ({cypherVar.Var})-[{c.Value?.Edge?.Var ?? throw new DataMisalignedException("Variable not set")}{(!string.IsNullOrEmpty(c.Value.Edge?.Label) ? $":{c.Value.Edge.Label}" : "")}]-({c.Value.Var})")
+                    .Select(connection => GenerateVarConnectionString(cypherVar, connection))
                     .Aggregate((a, b) => $"{a}\n{b}")
                 : string.Empty;
 
+        internal string GenerateVarConnectionString(CypherVar cypherVar, KeyValuePair<string, CypherVar> connection)
+        {
+            var cmd = connection.Value?.Edge?.Optional ?? false ? CypherConstants.OptionalMatchCommand : CypherConstants.MatchCommand;
+            var edgeVar = connection.Value?.Edge?.Var ?? throw new DataMisalignedException("Edge variable not set");
+            var edgeLabel = !string.IsNullOrEmpty(connection.Value.Edge?.Label) ? $":{connection.Value.Edge.Label}" : "";
+            var connectedLabel = !string.IsNullOrEmpty(connection.Value.Label) ? $":{connection.Value.Label}" : "";
+            var connectedVar = connection.Value.Var;
+            var rightEdgeArrow = connection.Value.Edge?.Direction == GraphEdgeDirection.In ? "<-" : "-";
+            var leftEdgeArrow = connection.Value.Edge?.Direction == GraphEdgeDirection.Out ? $"->" : "-";
+
+            var result = $"{cmd} ({cypherVar.Var}){rightEdgeArrow}[{edgeVar}{edgeLabel}]{leftEdgeArrow}({connectedVar}{connectedLabel})";
+            return result;
+        }
 
         public IQueryFactory Command<T>(T connectTo, Action<IQueryFactory> builder, IQueryFactory factory)
         {
@@ -402,7 +415,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                                 ? $" {{{edge.Properties.Select(p => $"{p.Key}:\"{p.Value}\"").Aggregate((a, b) => $"{a},{b}")}}}"
                                 : "";
 
-                            return $"{edgeAction} ({d.Key})-[{edgeVar}:{edgeLabel}{edgeProperties}]->({RootVar.Var})";
+                            return $"{edgeAction} ({RootVar.Var})<-[{edgeVar}:{edgeLabel}{edgeProperties}]-({d.Key})";
 
                         }))
                     .Aggregate((a, b) => $"{a}\n{b}");
@@ -524,25 +537,6 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void MatchChild<A, B>(A from, B connectTo, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MatchChild<A, B>(A from, B connectTo, PropertyInfo property, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build, Func<GraphEdgeDetails> edgeDefiner) => throw new NotImplementedException();
-        //{
-            //if (child == null || parent == null)
-            //    return;
-
-            //if (!GlobalObjectRegistry.TryGetValue(parent.GetHashCode(), out var parentFactory))
-            //    throw new DataMisalignedException($"Cannot find parent factory for {parent.GetHashCode()} to connect to child {child.GetHashCode()}");
-
-            //var childType = child.GetType();
-            //var idProp = ObjectInfo.GetIdProp(child.GetType());
-            //var idValue = idProp.GetValue(child);
-
-            //if (idValue == null)
-            //    throw new ArgumentException($"Cannot determine id value for object type {childType.Name}");
-
-            //var subFactory = Command(child, f => { }, ConnectChildWithMatch(child, q => q.Where(idProp.Name, Is.Equal(idValue), childType), GlobalObjectRegistry));
-
-            //build(subFactory);
-            //ConnectEdges(parentFactory, subFactory, edgeDefiner);
-        //}
         public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MergeChild<A, B>(A parent, B child, PropertyInfo connectedProperty, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder) where A : notnull
             => MergeChild(parent, child, clauser, builder,

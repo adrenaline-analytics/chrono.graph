@@ -3,6 +3,7 @@ using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Reflection;
 
@@ -16,7 +17,11 @@ namespace Chrono.Graph.Adapter.Neo4j
             => JoinRoller(operand.GetExpressionProperty(), clause, deepJoiner, optional);
         private Neo4jJoiner JoinRoller(PropertyInfo member, Clause clause, Action<IJoiner> deepJoiner, bool optional)
         {
+            RootVar.SaveChildFilter ??= [];
+            RootVar.SaveChildFilter.Add(member.Name);
+
             var primitivity = ObjectHelper.GetPrimitivity(member.PropertyType);
+            var objectLabel = ObjectHelper.GetObjectLabel(member.PropertyType);
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var dicInfo = ObjectHelper.GetDictionaryInfo(member.PropertyType);
@@ -28,9 +33,10 @@ namespace Chrono.Graph.Adapter.Neo4j
                         enumFieldSubfactory.RootVar = new CypherVar
                         {
                             Type = member.PropertyType,
-                            Var = $"{enumFieldLabel}{Utils.CypherId()}",
+                            Var = $"{objectLabel}{Utils.CypherId()}",
                             Edge = ObjectHelper.GetPropertyEdge(member, true, enumFieldLabel), //must always be OPTIONAL MATCH
-                            Label = enumFieldLabel,
+                            Label = objectLabel,
+                            GraphType = GraphObjectType.Node,
                         };
                         deepJoiner(enumFieldSubfactory);
                         RootVar.Connections[$"{member.Name}.{enumFieldLabel}"] = enumFieldSubfactory.RootVar;
@@ -41,13 +47,13 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             }
             var subfactory = new Neo4jJoiner();
-            var label = ObjectHelper.GetPropertyLabel(member);
             subfactory.RootVar = new CypherVar
             {
                 Type = member.PropertyType,
-                Var = $"{label}{Utils.CypherId()}",
+                Var = $"{objectLabel}{Utils.CypherId()}",
                 Edge = ObjectHelper.GetPropertyEdge(member, optional),
-                Label = label,
+                Label = objectLabel,
+                GraphType = GraphObjectType.Node,
             };
             deepJoiner(subfactory);
             RootVar.Connections[member.Name] = subfactory.RootVar;
@@ -72,7 +78,10 @@ namespace Chrono.Graph.Adapter.Neo4j
                 {
                     var primitivity = ObjectHelper.GetPrimitivity(prop.PropertyType);
                     var serializable = ObjectHelper.IsSerializable(prop);
-                    if(primitivity.HasFlag(GraphPrimitivity.Object) && !serializable)
+                    var ignore = (prop.GetCustomAttribute<GraphIgnoreAttribute>() ?? prop.PropertyType.GetCustomAttribute<GraphIgnoreAttribute>()) != null;
+                    if (primitivity.HasFlag(GraphPrimitivity.Function))
+                        Debug.WriteLine($"{RootVar.Type?.Name}.{prop.Name} is a funcable");
+                    if(!ignore && !primitivity.HasFlag(GraphPrimitivity.Function) && primitivity.HasFlag(GraphPrimitivity.Object) && !serializable)
                         JoinRoller(prop, new Clause { }, j => j.JoinAllChildrenRecursive(depth - 1), true);
                 }
             }

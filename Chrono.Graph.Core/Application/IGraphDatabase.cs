@@ -49,9 +49,9 @@ namespace Chrono.Graph.Core.Application
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="thing"></param>
-        /// <param name="nodeDepth"></param>
+        /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Post<T>(T thing, int nodeDepth) where T : class;
+        Task Post<T>(T thing, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Put a brand new object or update an existing one.  
         /// NULL VALUES IN THE UPDATED OBJECT WILL OVERWRITE (DELETE) the value on the existing object
@@ -65,27 +65,27 @@ namespace Chrono.Graph.Core.Application
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="thing"></param>
-        /// <param name="depth"></param>
+        /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, int depth) where T : class;
+        Task Put<T>(T thing, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Put a brand new objects recursively or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="thing"></param>
         /// <param name="idProp"></param>
-        /// <param name="depth"></param>
+        /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, PropertyInfo idProp, int depth) where T : class;
+        Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Put a brand new objects recursively or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="thing"></param>
         /// <param name="clauser"></param>
-        /// <param name="nodeDepth"></param>
+        /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class;
+        Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Put a brand new object or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
@@ -93,10 +93,8 @@ namespace Chrono.Graph.Core.Application
         /// <param name="o"></param>
         /// <param name="clauser"></param>
         /// <param name="joiner"></param>
-        /// <param name="depth"></param>
         /// <returns></returns>
         /// <exception cref="NotImplementedException"></exception>
-        Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, int depth) where T : class;
         /// <summary>
         /// Update an existing object
         /// NULL VALUES ARE SAFE and will NOT overwrite the value on the existing object
@@ -114,7 +112,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="thing"></param>
         /// <param name="nodeDepth"></param>
         /// <returns></returns>
-        Task Patch<T>(T thing, int nodeDepth) where T : class;
+        Task Patch<T>(T thing, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Update an existing object
         /// NULL VALUES ARE SAFE and will NOT overwrite the value on the existing object
@@ -134,7 +132,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="nodeDepth"></param>
         /// <returns></returns>
         /// <exception cref="NotImplementedException"></exception>
-        Task Patch<T>(T thing, Action<IQueryClause> clauser, int nodeDepth) where T : class;
+        Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class;
         /// <summary>
         /// Delete an object
         /// </summary>

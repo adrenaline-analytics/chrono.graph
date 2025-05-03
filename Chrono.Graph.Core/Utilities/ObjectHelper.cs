@@ -26,11 +26,15 @@ namespace Chrono.Graph.Core.Utilities
         }
         public static string GetPropertyLabel(PropertyInfo t)
         {
-            var primitivity = GetPrimitivity(t.PropertyType);
             return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
         }
 
         //public static string GetObjectLabel(PropertyInfo t) => GetObjectLabel(t.PropertyType);
+        public static string GetObjectLabel(PropertyInfo t)
+        {
+            var standardLabel = GetObjectLabel(t.PropertyType);
+            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? standardLabel : standardLabel);
+        }
         public static string GetObjectLabel(Type t)
         {
             var primitivity = GetPrimitivity(t);
@@ -86,7 +90,7 @@ namespace Chrono.Graph.Core.Utilities
                 }
             });
         }
-        public static GraphEdgeBasic GetDictionaryEdge(DictionaryInfo dic, PropertyInfo prop, object? key)
+        public static GraphEdgeDetails GetDictionaryEdge(DictionaryInfo dic, PropertyInfo prop, object? key)
         {
             var keyLabelling = prop.GetCustomAttribute<GraphKeyLabellingAttribute>();
             var keyString = key?.ToString() ?? "";
@@ -100,11 +104,12 @@ namespace Chrono.Graph.Core.Utilities
                     : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
                 :  GenerateDictionaryPropertyLabel(null, prop, null);
 
-
-            return new GraphEdgeBasic
+            var attr = prop.GetCustomAttribute<GraphEdgeAttribute>();
+            return new GraphEdgeDetails
             {
                 Label = label,
                 Properties = properties,
+                Direction = attr?.Definition?.Direction ?? GraphEdgeDirection.Out
             };
         }
 
@@ -178,6 +183,7 @@ namespace Chrono.Graph.Core.Utilities
 
             var result = TypeGauntlet(t);
 
+            var n = new Action(() => { });
             if (t.IsArray)
             {
                 result |= GraphPrimitivity.Array;
@@ -243,12 +249,29 @@ namespace Chrono.Graph.Core.Utilities
                     return tx == typeof(float) || tx == typeof(float?) || tx == typeof(float[])
                         || tx == typeof(long) || tx == typeof(long?) || tx == typeof(long[])
                         || tx == typeof(double) || tx == typeof(double?) || tx == typeof(double[]);
-                }}
+                }},
+                { GraphPrimitivity.Function, IsFuncOrAction }
             };
 
             result = checkBox.FirstOrDefault(c => c.Value(t)).Key; //default to non primitive
             return result == 0 ? GraphPrimitivity.Object : result;
         }
+        private static bool IsFuncOrAction(Type type)
+        {
+            if (typeof(Delegate).IsAssignableFrom(type))
+            {
+                var def = type.IsGenericType ? type.GetGenericTypeDefinition() : type;
+
+                return def == typeof(Action)
+                    || def == typeof(MulticastDelegate)
+                    || def == typeof(Delegate)
+                    || (def.Namespace == "System" && (
+                        def.Name.StartsWith("Action") || def.Name.StartsWith("Func")));
+            }
+
+            return false;
+        }
+
         private static bool IsEnumType(Type type)
             => Nullable.GetUnderlyingType(type) is Type underlyingType
                 ? underlyingType.IsEnum
