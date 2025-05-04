@@ -12,6 +12,7 @@ namespace Chrono.Graph.Adapter.Neo4j
     public static class Hydrate 
     {
         private static Dictionary<object, object> _cache = [];
+        private static HashSet<string> _reads = [];
         /// <summary>
         /// Hydrates BOTH the object instance and the edges
         /// </summary>
@@ -22,6 +23,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public static void Instance(object instance, IRecord record, CypherVar cypherVar)
         {
             _cache = [];
+            _reads = [];
             Edges(record, cypherVar);
             Recurse(instance,
                 TryReadNode(record[cypherVar.Var], out var node) ? node : throw new ArgumentException("Node unreadable"),
@@ -29,8 +31,36 @@ namespace Chrono.Graph.Adapter.Neo4j
                 cypherVar
             );
         }
+        private static object? GetFromCache(Type type, INode? node = null)
+        {
+            if (node == null)
+                return null;
+
+            var props = type.GetProperties();
+            var idProp = ObjectHelper.GetIdProp(type);
+            if (idProp == null)
+                return null;
+
+            var id = node.Properties.FirstOrDefault(p => p.Key.ToLower() == idProp.Name.ToLower()).Value;
+            if (id == null)
+                return null;
+
+            if (_cache.TryGetValue(id, out var cached) && cached != null)
+            {
+                if (cached.GetType() != type)
+                    throw new InvalidOperationException($"A cached version of this object [{type}] having id '{id}' is of a different type: {cached.GetType()}");
+
+                return cached;
+            }
+            return null;
+
+        }
         private static object Instantiate(Type type, INode? node = null)
         {
+            var cached = GetFromCache(type, node);
+            if (cached != null)
+                return cached;
+
             var instance = ObjectHelper.Instantiate(type);
             if (node == null)
                 return instance;
@@ -40,13 +70,6 @@ namespace Chrono.Graph.Adapter.Neo4j
             var id = node.Properties.FirstOrDefault(p => p.Key.ToLower() == idProp.Name.ToLower()).Value;
             if (id != null)
             {
-                if (_cache.TryGetValue(id, out var cached) && cached != null)
-                {
-                    if (cached.GetType() != type)
-                        throw new InvalidOperationException($"A cached version of this object [{type}] having id '{id}' is of a different type: {cached.GetType()}");
-
-                    return cached;
-                }
                 if(idProp.SetMethod != null)
                     idProp.SetValue(instance, id);
                 _cache[id] = instance;
@@ -96,12 +119,188 @@ namespace Chrono.Graph.Adapter.Neo4j
 
         }
 
+        private static void Recurse(object? instance, INode? node, IRecord record, CypherVar cypherVar)
+        {
+            if (node == null || instance == null)
+                return;
+
+            Primitives(instance, node);
+
+            foreach(var connectedVar in cypherVar.Connections.Where(c => record[c.Value.Var] != null))
+            {
+
+                var labelProperties = ObjectHelper.GetLabelProperty(instance.GetType(), connectedVar.Value.Edge?.Label ?? connectedVar.Value.Label);
+                PropertyInfo? property;
+                if((labelProperties?.Any() ?? false) && (property = labelProperties.FirstOrDefault()) != null )
+                {
+                    var primitivity = ObjectHelper.GetPrimitivity(property.PropertyType);
+                    if (!primitivity.HasFlag(GraphPrimitivity.Array))
+                    {
+                        //BASIC OBJECTS
+                        var connectedNode = TryReadNode(record[connectedVar.Value.Var], out var n) 
+                            ? n 
+                            : throw new ArgumentException("Node unreadable");
+
+                        //Don't over-hydrate
+                        //has this nodes objects property already been hydrated from this connected node?  dont do it again.
+                        if (_reads.Add($"{node.ElementId}.{instance.GetType().Name}.{property.Name}.{connectedNode?.ElementId}"))
+                        {
+                            var connectedInstance = Instantiate(property.PropertyType, connectedNode);
+                            Recurse(connectedInstance,
+                                connectedNode,
+                                record,
+                                connectedVar.Value
+                            );
+                            property.SetValue(instance, connectedInstance);
+                        }
+
+                    }
+                    else if (!primitivity.HasFlag(GraphPrimitivity.Dictionary))
+                    {
+                        //ARRAYS
+                        var itemType = property.PropertyType.GenericTypeArguments[0];
+                        var listType = typeof(List<>).MakeGenericType(itemType);
+                        var instances = Instantiate(listType);
+                        var buffer = new List<object?> { };
+                        var addMethod = listType.GetMethod("Add") ?? throw new ArgumentException("Object is not of type dictionary");
+
+                        var nodes = TryReadNodes(record[connectedVar.Value.Var], out var n) 
+                            ? n 
+                            : throw new ArgumentException("Node unreadable");
+                        var parentPath = $"{node.ElementId}.{instance.GetType().Name}.{property.Name}";
+                        Recurse(buffer, property.PropertyType.GenericTypeArguments[0], record, connectedVar.Value, node.ElementId, nodes, parentPath);
+                        foreach (var thing in buffer)
+                            addMethod.Invoke(instances, [thing]);
+
+                        if (property.PropertyType.IsAssignableFrom(instances.GetType()))
+                        {
+                            //Prepend the existing items in the array that have been populated already
+                            if (property.GetValue(instance) is IEnumerable<object> existingList)
+                                foreach (var item in existingList)
+                                    addMethod.Invoke(instances, [item]);
+
+                            property.SetValue(instance, instances);
+                        }
+                        else
+                        {
+                            // Attempt a cast using reflection to ensure compatibility
+                            var castMethod = typeof(Enumerable).GetMethod("Cast")?.MakeGenericMethod(itemType) ?? throw new FieldAccessException("The `Cast()` method is no longer supported by IEnumerable<>");
+                            var toListMethod = typeof(Enumerable).GetMethod("ToList")?.MakeGenericMethod(itemType) ?? throw new FieldAccessException("The `ToList()` method is no longer supported by IEnumerable<>");
+                            var castedEnumerable = castMethod.Invoke(null, new object[] { instances });
+                            if (castedEnumerable != null)
+                            {
+                                var finalList = toListMethod.Invoke(null, new object[] { castedEnumerable });
+                                property.SetValue(instance, finalList);
+                            }
+                        }
+
+                    }
+                    else
+                    {
+                        //DICTIONARIES
+                        var keyType = property.PropertyType.GenericTypeArguments[0];
+                        var valueType = property.PropertyType.GenericTypeArguments[1];
+                        var dictType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
+                        var buffer = new Dictionary<object, object?> ();
+                        if (_reads.Add($"{node.ElementId}.{instance.GetType().Name}.{property.Name}.{connectedVar.Value.Var}"))
+                        {
+                            var instances = Instantiate(dictType);
+                            var addMethod = dictType.GetMethod("Add")
+                                ?? throw new FieldAccessException("The `Add()` method is no longer supported by Dictionar<object, object>");
+
+                            var parentPath = $"{node.ElementId}.{instance.GetType().Name}.{property.Name}";
+                            Recurse(buffer, keyType, valueType, record, connectedVar.Value);
+                            foreach (var thing in buffer)
+                                addMethod.Invoke(instances, [thing.Key, thing.Value]);
+
+                            var existingValues = property.GetValue(instance);
+                            if (property.PropertyType.IsAssignableFrom(instances.GetType()))
+                            {
+                                if (existingValues != null
+                                    && existingValues.GetType().IsGenericType
+                                    && existingValues.GetType().GetGenericTypeDefinition() == typeof(Dictionary<,>))
+                                {
+                                    // Get existing dictionary keys and values
+                                    var existingDict = existingValues as IDictionary;
+
+                                    if (existingDict != null)
+                                    {
+                                        foreach (DictionaryEntry entry in (IDictionary)buffer)
+                                        {
+                                            if (!existingDict.Contains(entry.Key))
+                                                existingDict.Add(entry.Key, entry.Value);
+                                        }
+
+                                        property.SetValue(instance, existingDict);
+                                    }
+                                }
+                                else
+                                {
+                                    property.SetValue(instance, instances);
+                                }
+                            }
+                            else
+                            {
+                                // Attempt a cast using reflection to ensure compatibility
+                                var castMethod = typeof(Enumerable).GetMethod("Cast")?.MakeGenericMethod(typeof(KeyValuePair<,>).MakeGenericType(keyType, valueType));
+                                var toDictMethod = typeof(Enumerable).GetMethod("ToDictionary")?.MakeGenericMethod(keyType, valueType);
+                                var castedEnumerable = castMethod?.Invoke(null, new object[] { instances });
+                                if (castedEnumerable != null)
+                                {
+                                    var finalDict = toDictMethod?.Invoke(null, new object[] { castedEnumerable, (Func<object, object>)(entry => ((dynamic)entry).Key), (Func<object, object>)(entry => ((dynamic)entry).Value) });
+                                    property.SetValue(instance, finalDict);
+                                }
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        private static void Recurse(List<object?> instances, Type type, IRecord record, CypherVar cypherVar, string myNeo4JId, IEnumerable<IGrouping<string, INode>> nodes, string parentPath)
+        {
+            // 1. Collect valid Neo4j IDs from edge list, if defined
+            HashSet<string>? allowedNodeIds = null;
+            if (!string.IsNullOrEmpty(cypherVar.Edge?.Var) &&
+                record.TryGetValue(cypherVar.Var, out var currentNodeObj) &&
+                record.TryGetValue(cypherVar.Edge.Var, out var edgeRecordObj))
+            {
+
+                var edgeRecords = edgeRecordObj is List<object>
+                    ? edgeRecordObj.As<List<IRelationship>>()
+                    : new List<IRelationship> { edgeRecordObj.As<IRelationship>() };
+
+                allowedNodeIds = edgeRecords
+                    .Where(rel => rel.StartNodeElementId == myNeo4JId || rel.EndNodeElementId == myNeo4JId)
+                    .Select(rel => rel.StartNodeElementId == myNeo4JId ? rel.EndNodeElementId : rel.StartNodeElementId)
+                    .ToHashSet();
+            }
+
+            foreach (var nodeGroup in nodes)
+            {
+                var node = nodeGroup.First();
+                var nodeId = node.ElementId;
+                if (_reads.Add($"{parentPath}.{node.ElementId}"))
+                {
+                    // 2. If there are valid edge constraints, skip any node not connected by an edge
+                    if (allowedNodeIds != null && !allowedNodeIds.Contains(nodeId))
+                        continue;
+
+                    var instance = Instantiate(type, node);
+                    Recurse(instance, node, record, cypherVar);
+                    instances.Add(instance);
+
+                }
+
+            }
+        }
+
         private static void Recurse(Dictionary<object, object?> instances, Type keyType, Type valueType, IRecord record, CypherVar cypherVar)
         {
             if (!TryReadNodes(record[cypherVar.Var], out var nodes))
                 throw new ArgumentException("Nodes unreadable");
 
-            foreach(var node in nodes)
+            foreach (var node in nodes)
             {
                 var keyInstance = Instantiate(keyType);
                 //if an enum
@@ -161,170 +360,6 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             }
         }
-        private static void Recurse(object? instance, INode? node, IRecord record, CypherVar cypherVar)
-        {
-            if (node == null || instance == null)
-                return;
-
-            Primitives(instance, node);
-
-            foreach(var connectedVar in cypherVar.Connections.Where(c => record[c.Value.Var] != null))
-            {
-                var labelProperties = ObjectHelper.GetLabelProperty(instance.GetType(), connectedVar.Value.Edge?.Label ?? connectedVar.Value.Label);
-                PropertyInfo? property;
-                if((labelProperties?.Any() ?? false) && (property = labelProperties.FirstOrDefault()) != null )
-                {
-                    var primitivity = ObjectHelper.GetPrimitivity(property.PropertyType);
-                    if (!primitivity.HasFlag(GraphPrimitivity.Array))
-                    {
-                        //BASIC OBJECTS
-                        var connectedNode = TryReadNode(record[connectedVar.Value.Var], out var n) 
-                            ? n 
-                            : throw new ArgumentException("Node unreadable");
-                        var connectedInstance = Instantiate(property.PropertyType, connectedNode);
-                        //var connectedInstance = property.GetValue(instance)
-                        //    ?? Instantiate(property.PropertyType, node);
-
-                        Recurse(connectedInstance,
-                            connectedNode,
-                            record,
-                            connectedVar.Value
-                        );
-
-                        property.SetValue(instance, connectedInstance);
-                    }
-                    else if (!primitivity.HasFlag(GraphPrimitivity.Dictionary))
-                    {
-                        //ARRAYS
-                        var itemType = property.PropertyType.GenericTypeArguments[0];
-                        var listType = typeof(List<>).MakeGenericType(itemType);
-                        var buffer = new List<object?> { };
-                        var instances = Instantiate(listType);
-                        var addMethod = listType.GetMethod("Add") ?? throw new ArgumentException("Object is not of type dictionary");
-
-                        Recurse(buffer, property.PropertyType.GenericTypeArguments[0], record, connectedVar.Value, node.ElementId);
-                        foreach (var thing in buffer)
-                            addMethod.Invoke(instances, [thing]);
-
-                        if (property.PropertyType.IsAssignableFrom(instances.GetType()))
-                        {
-                            //Prepend the existing items in the array that have been populated already
-                            if (property.GetValue(instance) is IEnumerable<object> existingList)
-                                foreach (var item in existingList)
-                                    addMethod.Invoke(instances, [item]);
-
-                            property.SetValue(instance, instances);
-                        }
-                        else
-                        {
-                            // Attempt a cast using reflection to ensure compatibility
-                            var castMethod = typeof(Enumerable).GetMethod("Cast")?.MakeGenericMethod(itemType) ?? throw new FieldAccessException("The `Cast()` method is no longer supported by IEnumerable<>");
-                            var toListMethod = typeof(Enumerable).GetMethod("ToList")?.MakeGenericMethod(itemType) ?? throw new FieldAccessException("The `ToList()` method is no longer supported by IEnumerable<>");
-                            var castedEnumerable = castMethod.Invoke(null, new object[] { instances });
-                            if(castedEnumerable != null)
-                            {
-                                var finalList = toListMethod.Invoke(null, new object[] { castedEnumerable });
-                                property.SetValue(instance, finalList);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        //DICTIONARIES
-
-                        var keyType = property.PropertyType.GenericTypeArguments[0];
-                        var valueType = property.PropertyType.GenericTypeArguments[1];
-                        var dictType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
-                        var buffer = new Dictionary<object, object?> ();
-                        var instances = Instantiate(dictType);
-                        var addMethod = dictType.GetMethod("Add") 
-                            ?? throw new FieldAccessException("The `Add()` method is no longer supported by Dictionar<object, object>");
-
-                        Recurse(buffer, keyType, valueType, record, connectedVar.Value);
-                        foreach (var thing in buffer) 
-                            addMethod.Invoke(instances, [thing.Key, thing.Value]);
-
-                        var existingValues = property.GetValue(instance);
-                        if (property.PropertyType.IsAssignableFrom(instances.GetType()))
-                        {
-                            if (existingValues != null 
-                                && existingValues.GetType().IsGenericType 
-                                && existingValues.GetType().GetGenericTypeDefinition() == typeof(Dictionary<,>))
-                            {
-                                // Get existing dictionary keys and values
-                                var existingDict = existingValues as IDictionary;
-
-                                if(existingDict != null)
-                                {
-                                    foreach (DictionaryEntry entry in (IDictionary)buffer)
-                                    {
-                                        if (!existingDict.Contains(entry.Key))
-                                            existingDict.Add(entry.Key, entry.Value);
-                                    }
-
-                                    property.SetValue(instance, existingDict);
-                                }
-                            }
-                            else
-                            {
-                                property.SetValue(instance, instances);
-                            }
-                        }
-                        else
-                        {
-                            // Attempt a cast using reflection to ensure compatibility
-                            var castMethod = typeof(Enumerable).GetMethod("Cast")?.MakeGenericMethod(typeof(KeyValuePair<,>).MakeGenericType(keyType, valueType));
-                            var toDictMethod = typeof(Enumerable).GetMethod("ToDictionary")?.MakeGenericMethod(keyType, valueType);
-                            var castedEnumerable = castMethod?.Invoke(null, new object[] { instances });
-                            if(castedEnumerable != null)
-                            {
-                                var finalDict = toDictMethod?.Invoke(null, new object[] { castedEnumerable, (Func<object, object>)(entry => ((dynamic)entry).Key), (Func<object, object>)(entry => ((dynamic)entry).Value) });
-                                property.SetValue(instance, finalDict);
-                            }
-
-                        }
-                    }
-                }
-            }
-        }
-        private static void Recurse(List<object?> instances, Type type, IRecord record, CypherVar cypherVar, string myNeo4JId)
-        {
-            // 1. Read all nodes for this level
-            if (!TryReadNodes(record[cypherVar.Var], out var nodes))
-                throw new ArgumentException("Nodes unreadable");
-
-            // 2. Collect valid Neo4j IDs from edge list, if defined
-            HashSet<string>? allowedNodeIds = null;
-            if (!string.IsNullOrEmpty(cypherVar.Edge?.Var) &&
-                record.TryGetValue(cypherVar.Var, out var currentNodeObj) &&
-                record.TryGetValue(cypherVar.Edge.Var, out var edgeRecordObj))
-            {
-
-                var edgeRecords = edgeRecordObj is List<object>
-                    ? edgeRecordObj.As<List<IRelationship>>()
-                    : new List<IRelationship> { edgeRecordObj.As<IRelationship>() };
-
-                allowedNodeIds = edgeRecords
-                    .Where(rel => rel.StartNodeElementId == myNeo4JId || rel.EndNodeElementId == myNeo4JId)
-                    .Select(rel => rel.StartNodeElementId == myNeo4JId ? rel.EndNodeElementId : rel.StartNodeElementId)
-                    .ToHashSet();
-            }
-
-            foreach (var nodeGroup in nodes)
-            {
-                var node = nodeGroup.First();
-                var nodeId = node.ElementId;
-
-                // 3. If there are valid edge constraints, skip any node not connected by an edge
-                if (allowedNodeIds != null && !allowedNodeIds.Contains(nodeId))
-                    continue;
-
-                var instance = Instantiate(type, node);
-                Recurse(instance, node, record, cypherVar);
-                instances.Add(instance);
-            }
-        }
-
 
         private static void Primitives(object? instance, INode? node)
         {

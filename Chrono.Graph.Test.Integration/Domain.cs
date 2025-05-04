@@ -117,6 +117,8 @@ namespace Chrono.Graph.Test.Integration
     {
         public string Title { get; set; } = "Fancyville";
         public Address Address { get; set; } = new();
+        [GraphEdge("PAYING_O_THE_MORNIN", GraphEdgeDirection.In)]
+        public IList<PaymentCredential> Payees { get; set; } = [];
     }
 
     public class PaymentCredential : Base
@@ -227,6 +229,8 @@ namespace Chrono.Graph.Test.Integration
         [GraphLabel("HomeTown")]
         [GraphObjectSerialize]
         public NodeSubclass? JsonClass { get; set; }
+        public NodeSubclass? NormalClass { get; set; }
+        public IList<NodeSubclass>? NormalClasses { get; set; }
         public int? CowsMistakenForChicken { get; set; }
         public float? StrutCount { get; set; }
         public float? HitPercentage { get; set; }
@@ -248,6 +252,15 @@ namespace Chrono.Graph.Test.Integration
         public IEnumerable<string>? StringParty { get; set; }
         public bool[]? BoolBasket { get; set; }
         public IEnumerable<bool>? BohemianCrapsidy { get; set; }
+        public NodeSubSubclass InfiniteChickenHole { get; set; } = new NodeSubSubclass();
+        public NodeSubSubclass InnerCoop { get; set; } = new NodeSubSubclass();
+        public IList<NodeSubSubclass> InnerCoops { get; set; } = [];
 
+    }
+    public class NodeSubSubclass : Base
+    {
+        public string StoryBook { get; set; } = string.Empty;
+        public bool Bool { get; set; }
+        public int Number { get; set; }
     }
 }

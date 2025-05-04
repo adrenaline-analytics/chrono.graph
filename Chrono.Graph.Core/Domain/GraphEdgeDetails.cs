@@ -1,4 +1,5 @@
 ﻿using Chrono.Graph.Core.Constant;
+using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
 
 namespace Chrono.Graph.Core.Domain
@@ -12,5 +13,6 @@ namespace Chrono.Graph.Core.Domain
         public string Var { get => Utils.StandardizeVariableName($"edge{_label ?? ""}{Hash}"); }
         public bool? Optional { get; set; }
         public GraphEdgeDirection Direction { get; set; } = GraphEdgeDirection.Out;
+        public GraphKeyLabellingAttribute? KeyLabelling { get; internal set; }
     }
 }

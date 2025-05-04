@@ -109,7 +109,8 @@ namespace Chrono.Graph.Core.Utilities
             {
                 Label = label,
                 Properties = properties,
-                Direction = attr?.Definition?.Direction ?? GraphEdgeDirection.Out
+                Direction = attr?.Definition?.Direction ?? GraphEdgeDirection.Out,
+                KeyLabelling = keyLabelling
             };
         }
 
@@ -136,6 +137,26 @@ namespace Chrono.Graph.Core.Utilities
                 : (!string.IsNullOrEmpty(key?.ToString() ?? "")
                     ? $"{prop.Name}_{key?.ToString() ?? ""}"
                     : prop.Name);
+        public static Type TrueType(Type type)
+        {
+            var primitivity = ObjectHelper.GetPrimitivity(type);
+            if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
+            {
+                //set the rootvar type of the child to the value generic of the dictionary
+                var dicInfo = ObjectHelper.GetDictionaryInfo(type);
+                if (dicInfo.ValType == null)
+                    throw new InvalidOperationException("Cannot determine dictionary value generic type for saving to graph db");
+                return TrueType(dicInfo.ValType);
+
+            }
+            else if (primitivity.HasFlag(GraphPrimitivity.Array))
+            {
+                //set the rootvar type of the child to the generic of the array
+                var arrayType = type.GenericTypeArguments[0];
+                return TrueType(arrayType);
+            }
+            return type;
+        }
         public static GraphEdgeDetails GetPropertyEdge(MemberInfo prop, bool optional = false, string? label = null)
         {
             var attr = prop.GetCustomAttribute<GraphEdgeAttribute>()?.Definition

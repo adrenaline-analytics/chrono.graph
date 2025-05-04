@@ -310,9 +310,9 @@ namespace Chrono.Graph.Adapter.Neo4j
             builder(factory);
             return factory;
         }
-        internal void ConnectEdges(IQueryFactory factoryA, IQueryFactory factoryB, Func<GraphEdgeDetails> edgeDefiner)
+        internal void ConnectEdges(IQueryFactory factoryA, IQueryFactory factoryB, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner)
         {
-            var edge = edgeDefiner();
+            var edge = edgeDefiner(factoryB);
 
             //make sure to use the opposite factory hash.
             var (hash, edges) = edge.Direction == GraphEdgeDirection.In
@@ -475,8 +475,8 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder)
             => CreateChild(parent, child, prop, builder, prop?.Name ?? child?.GetType().Name ?? "");
         public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, string label)
-            => CreateChild(parent, child, prop, builder, () => ObjectHelper.GetPropertyEdge(prop ?? throw new ArgumentException("A property info object is required to create a child object"), label: label));
-        public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner)
+            => CreateChild(parent, child, prop, builder, (f) => ObjectHelper.GetPropertyEdge(prop ?? throw new ArgumentException("A property info object is required to create a child object"), label: label));
+        public void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner)
         {
             if (child == null || parent == null)
                 return;
@@ -536,11 +536,11 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void Merge<T>(T thing, PropertyInfo property, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MatchChild<A, B>(A from, B connectTo, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MatchChild<A, B>(A from, B connectTo, PropertyInfo property, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
-        public void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build, Func<GraphEdgeDetails> edgeDefiner) => throw new NotImplementedException();
+        public void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner) => throw new NotImplementedException();
         public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MergeChild<A, B>(A parent, B child, PropertyInfo connectedProperty, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder) where A : notnull
             => MergeChild(parent, child, clauser, builder,
-                () => {
+                (f) => {
                         var attr = connectedProperty.GetCustomAttribute<GraphEdgeAttribute>()?.Definition
                             ?? connectedProperty.GetType().GetCustomAttribute<GraphEdgeAttribute>()?.Definition;
                         return new GraphEdgeDetails
@@ -549,7 +549,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                             Direction = attr != null ? attr.Direction : GraphEdgeDirection.Out
                         };
                     });
-        public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner) where A : notnull
+        public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner) where A : notnull
         {
             if(GlobalObjectRegistry.TryGetValue(parent.GetHashCode(), out var parentFactory))
             {
