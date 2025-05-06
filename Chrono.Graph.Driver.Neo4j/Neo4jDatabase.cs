@@ -37,7 +37,8 @@ namespace Chrono.Graph.Adapter.Neo4j
                 factory = Neo4jFactory.BootstrapWithMatch<T>(clauser);
                 if (joiner != null)
                 {
-                    factory.Return(joiner);
+                    //factory.Return(joiner);
+                    factory.ReturnStructured(joiner);
                 }
                 else
                 {
@@ -54,7 +55,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var result = queryResult.Count > 0 ? queryResult.Select(record =>
             {
                 T instance = ObjectHelper.Instantiate<T>();
-                Hydrate.Instance(instance, record, factory.RootVar);
+                new Hydrator2000().Hydrate(instance, record, factory.RootVar);
                 return instance;
             }).Where(i => i != null).ToList() : [];
             return ((result?.Count ?? 0) > 0) ? result ?? [] : [];

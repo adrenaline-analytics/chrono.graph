@@ -4,12 +4,14 @@ using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text;
+using System.Xml.Schema;
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
-
     public class Neo4jFactory : Neo4jJoiner, IQueryFactory
     {
         private Dictionary<string, ISubQueryFactory> _subFactories = [];
@@ -349,11 +351,16 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             var actionAggregate = new Func<string, string[], string>((prefix, items) =>
                 items.Any(i => !string.IsNullOrEmpty(i))
-                    ? $"{prefix} {items.Where(i => !string.IsNullOrEmpty(i)).Aggregate((a, b) => $"{a}, {b}")}"
+                    ? $"{prefix} {items.Where(i => !string.IsNullOrEmpty(i)).Aggregate((a, b) => $"{a},\n{b}")}"
                     : string.Empty);
 
             var returns = actionAggregate(CypherConstants.ReturnCommand, Statement.Returns);
             var deletes = actionAggregate(CypherConstants.DeleteCommand, Statement.Deletes);
+
+            var withs = Statement.Withs.Any(w => !string.IsNullOrEmpty(w)) 
+                ? Statement.Withs.Where(i => !string.IsNullOrEmpty(i)).Aggregate((a, b) => $"{a}\n{b}") 
+                : string.Empty;
+
             var doOns = Statement.DoOns.Any(d => !string.IsNullOrEmpty(d.Key) && !string.IsNullOrEmpty(d.Value))
                 ? Statement.DoOns.Where(d => !string.IsNullOrEmpty(d.Key) && !string.IsNullOrEmpty(d.Value))
                     .Select(d => d.Value)
@@ -362,6 +369,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             var actionSet = new string[]
             {
+                withs,
                 returns,
                 deletes,
                 doOns
@@ -578,7 +586,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             joiner(this);
 
             RootVar.Connections.Recurse(outVars.Enqueue);
-            RootVar.Connections.Recurse(t => {
+            RootVar.Connections.Recurse(t =>
+            {
                 var primitivity = ObjectHelper.GetPrimitivity(t.Type ?? throw new ArgumentException("Cannot determine primitivity of a null type"));
                 connectedVars.Enqueue(primitivity.HasFlag(GraphPrimitivity.Array) ? $"COLLECT({t.Var}) AS {t.Var}" : t.Var);
                 if (!string.IsNullOrEmpty(t.Edge?.Var))
@@ -590,6 +599,113 @@ namespace Chrono.Graph.Adapter.Neo4j
             Return(RootVar);
             Return(connectedVars);
         }
+        [Experimental("Optimization")]
+        public void ReturnStructured(Action<IJoiner> joiner)
+        {
+            var outVars = new List<CypherVar> { RootVar };
+            var withStages = new List<string>();
+            var queue = new Queue<CypherVar>();
+            var withs = new Stack<WithVar>();
+
+            joiner(this);
+
+            RootVar.Connections.Recurse(outVars.Add);
+            Statement.OutVars.Merge(outVars.ToDictionary(v => v.Var, v => v));
+
+            Match(RootVar);
+
+            queue.Enqueue(RootVar);
+
+            while (queue.TryDequeue(out var entry))
+            {
+
+                var flatWithSet = new HashSet<string>();
+
+                foreach (var (key, child) in entry.Connections)
+                {
+
+                    var entries = new Dictionary<string, string> { { "node", child.Var } };
+                    if (child.Connections.Count > 0)
+                    {
+                        entries.Merge(child.Connections.ToDictionary(kvp => kvp.Value.Var, kvp => kvp.Value.Var));
+                        queue.Enqueue(child);
+                    }
+
+                    if (!string.IsNullOrEmpty(child.Edge?.Var))
+                        entries["edge"] = child.Edge.Var;
+
+                    var construct = $"{{{string.Join(", ", entries.Select(e => $"{e.Key}: {e.Value}"))}}}";
+                    var with = new WithVar
+                    {
+                        Var = child.Var,
+                        Construct = $"COLLECT({construct})",
+                        Collapses = [.. child.Connections.Select(kvp => kvp.Value.Var)],
+                    };
+
+                    if (!string.IsNullOrEmpty(child.Edge?.Var))
+                        with.Collapses = [..with.Collapses, child.Edge.Var];
+
+                    withs.Push(with);
+
+                }
+
+            }
+
+            var finalVars = new List<string>();
+            foreach(var outVar in outVars)
+            {
+                finalVars.Add(outVar.Var);
+                if (!string.IsNullOrEmpty(outVar.Edge?.Var))
+                    finalVars.Add(outVar.Edge.Var);
+            }
+
+            if (withs.Count > 0)
+            {
+                while(withs.TryPop(out var with))
+                {
+                    var withBlock = new StringBuilder();
+
+                    if(with.Collapses != null)
+                        finalVars = finalVars.Where(v => !with.Collapses.Contains(v)).ToList();
+
+                    var prependVars = finalVars.Where(v => v != with.Var);
+                    if (!prependVars.Any())
+                        throw new Exception();
+
+                    withBlock.AppendLine($"WITH {prependVars.Aggregate((a, b) => $"{a}, {b}")},");
+                    if (!string.IsNullOrEmpty(with.Construct))
+                    {
+                        withBlock.AppendLine("     " + $"{with.Construct} AS {with.Var}");
+                    }
+                    else
+                    {
+                        withBlock.AppendLine("     " + with.Var);
+                    }
+                    withStages.Add(withBlock.ToString());
+                }
+            }
+
+            // Build top-level return object
+            var returnFields = new List<string> { $"node: {RootVar.Var}" };
+
+            // Attach top-level child collections (like raceRegistrationKQaD6N7clq)
+            foreach (var child in RootVar.Connections.Values)
+                returnFields.Add($"{child.Var}: {child.Var}");
+
+            var returnObject = $"{{{string.Join(", ", returnFields)}}} AS {RootVar.Var}";
+
+            Statement.Withs = [.. withStages];
+            Return([returnObject]);
+
+            //withStages.Add($"WITH {RootVar.Var}, {string.Join(", ", RootVar.Connections.Values.Select(v => v.Var))}");
+            //withStages.Add($"RETURN {returnObject}");
+
+
+            //var finalReturns = new List<string> { RootVar.Var };
+            //finalReturns.AddRange(RootVar.Connections.Values.Select(c => c.Var));
+            //Return(finalReturns);
+        }
+
 
         public IQueryClauseGroup Where<T, P>(Expression<Func<T, P?>> operand, Clause clause) => Where<T>(operand.GetExpressionPropertyName(), clause);
         public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));

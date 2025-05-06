@@ -304,6 +304,21 @@ namespace Chrono.Graph.Core.Utilities
                 ? JsonSerializer.Serialize(JsonSerializer.Serialize(thing), new JsonSerializerOptions { })
                 : JsonSerializer.Serialize(thing);
         }
+        public static bool TryMakeDictionary(IList<object> records, out Dictionary<string, object> dict)
+        {
+            var attempt = records.FirstOrDefault();
+            dict = attempt != null && (attempt is IDictionary<string, object> d)
+                ? d.ToDictionary(dd => dd.Key, dd => dd.Value) 
+                : new Dictionary<string, object>();
+            return attempt != null;
+        }
+        public static bool TryMakeDictionaries(IList<object> records, out List<Dictionary<string, object>> dics)
+        {
+            var attempts = records.Select(r => TryMakeDictionary([r], out var att) ? att : null)
+                .Where(a => a != null);
+            dics = attempts?.ToList() ?? [];
+            return !(attempts?.Any(a => a == null) ?? true);
+        }
 
     }
 }

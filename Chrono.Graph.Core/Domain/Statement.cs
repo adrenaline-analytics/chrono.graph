@@ -16,6 +16,7 @@ namespace Chrono.Graph.Core.Domain
 
         public Dictionary<string, CypherVar> OutVars { get; set; } = new Dictionary<string, CypherVar>();
         public Dictionary<string, CypherVar> InVars { get; set; } = new Dictionary<string, CypherVar>();
+        public string[] Withs { get; set; } = [];
 
         //node var, properties
 
