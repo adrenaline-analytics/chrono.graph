@@ -101,9 +101,6 @@ namespace Chrono.Graph.Core.Utilities
                 if(!dic1.TryAdd(injectable.Key, injectable.Value))
                 {
                     var old = dic1[injectable.Key];
-                    if (!(old?.Equals(injectable.Value) ?? false))
-                        Console.WriteLine($"Warning: This cypher key {injectable.Key} has been added already with a different value");
-
                 }
 
             }
