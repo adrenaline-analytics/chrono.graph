@@ -17,8 +17,8 @@
             get => RunTime != null && RunTicks != null
                 ? DateTimeOffset.FromUnixTimeMilliseconds(Math.Abs(RunTicks.Value) + RunTime.Value).UtcDateTime
                 : null;
-            set => RunTicks = value != null
-                ? new DateTimeOffset(value.Value).ToUnixTimeMilliseconds()
+            set => RunTicks = value != null && RunTime != null
+                ? new DateTimeOffset(value.Value).ToUnixTimeMilliseconds() - RunTime
                 : null;
         }
     }
