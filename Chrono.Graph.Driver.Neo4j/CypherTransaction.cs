@@ -48,11 +48,14 @@ namespace Chrono.Graph.Adapter.Neo4j
                 throw new ArgumentException("Unable to determine cypher, cannot create query");
 
             Debug.WriteLine(statement.Cypher);
+            var timein = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var (result, summary) = await Driver
                 .ExecutableQuery(statement.Cypher)
                 .WithParameters(statement.InVars.ToDictionary(v => v.Key, v => v.Value.Object))
                 .WithConfig(QueryConfig ?? new QueryConfig())
                 .ExecuteAsync();
+
+            Debug.WriteLine($"Finished in {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -  timein} ms");
 
             return (result, summary);
 

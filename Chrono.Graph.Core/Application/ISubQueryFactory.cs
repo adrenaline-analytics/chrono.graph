@@ -15,7 +15,7 @@ namespace Chrono.Graph.Core.Application
         void CreateChild(object? parent, object? child, PropertyInfo? prop);
         void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> build);
         void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> builder, string label);
-        void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> build, Func<GraphEdgeDetails> edgeDefiner);
+        void CreateChild(object? parent, object? child, PropertyInfo? prop, Action<ISubQueryFactory> build, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner);
 
         void Merge<T>(T thing, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
         void Merge<T>(T thing, string label, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
@@ -23,6 +23,7 @@ namespace Chrono.Graph.Core.Application
 
         void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
         void MergeChild<A, B>(A parent, B child, PropertyInfo property, Action<IQueryClause> clausation, Action<ISubQueryFactory> build) where A : notnull;
+        void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner) where A : notnull;
 
         void Match<T>(T thing, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
         void Match<T>(T thing, string label, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
@@ -30,7 +31,7 @@ namespace Chrono.Graph.Core.Application
 
         void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
         void MatchChild<A, B>(A parent, B child, PropertyInfo property, Action<IQueryClause> clausation, Action<ISubQueryFactory> build);
-        void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build, Func<GraphEdgeDetails> edgeDefiner);
+        void MatchChild<A, B>(A parent, B child, Action<IQueryClause> clausation, Action<ISubQueryFactory> build, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner);
 
         void Delete();
         void Delete(CypherVar outVar);
@@ -56,7 +57,6 @@ namespace Chrono.Graph.Core.Application
         void OnMatchSet<T>(T thing, bool idempotent) where T : notnull;
         void Match(IEnumerable<CypherVar> cypherVars);
         void Match(CypherVar cypherVar);
-        void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<GraphEdgeDetails> edgeDefiner) where A : notnull;
     }
 
 }

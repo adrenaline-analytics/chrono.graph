@@ -12,6 +12,7 @@
         public const string OptionalMatchCommand = "OPTIONAL MATCH";
         public const string MergeCommand = "MERGE";
         public const string CreateCommand = "CREATE";
+        public const string WithCommand = "WITH";
         public const string ReturnCommand = "RETURN";
         public const string DeleteCommand = "DETACH DELETE";
         public const string RemoveCommand = "REMOVE";

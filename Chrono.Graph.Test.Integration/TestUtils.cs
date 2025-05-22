@@ -19,9 +19,9 @@ namespace Chrono.Graph.Test.Integration
             };
             var provincialCode = new ProvincialCode
             {
-                Code = "12456",
+                Code = "12458",
                 Country = country,
-                Provinces = [province]
+                Provinces = [province],
                 
             };
             var township = new Township
@@ -33,6 +33,7 @@ namespace Chrono.Graph.Test.Integration
             };
             province.Townships = [township];
             country.Provinces = [province];
+            provincialCode.Townships = [township];
             return new Address
             {
                 Id = Id(),
