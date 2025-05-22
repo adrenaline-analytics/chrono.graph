@@ -26,11 +26,15 @@ namespace Chrono.Graph.Core.Utilities
         }
         public static string GetPropertyLabel(PropertyInfo t)
         {
-            var primitivity = GetPrimitivity(t.PropertyType);
             return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
         }
 
         //public static string GetObjectLabel(PropertyInfo t) => GetObjectLabel(t.PropertyType);
+        public static string GetObjectLabel(PropertyInfo t)
+        {
+            var standardLabel = GetObjectLabel(t.PropertyType);
+            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? standardLabel : standardLabel);
+        }
         public static string GetObjectLabel(Type t)
         {
             var primitivity = GetPrimitivity(t);
@@ -86,7 +90,7 @@ namespace Chrono.Graph.Core.Utilities
                 }
             });
         }
-        public static GraphEdgeBasic GetDictionaryEdge(DictionaryInfo dic, PropertyInfo prop, object? key)
+        public static GraphEdgeDetails GetDictionaryEdge(DictionaryInfo dic, PropertyInfo prop, object? key)
         {
             var keyLabelling = prop.GetCustomAttribute<GraphKeyLabellingAttribute>();
             var keyString = key?.ToString() ?? "";
@@ -100,11 +104,13 @@ namespace Chrono.Graph.Core.Utilities
                     : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
                 :  GenerateDictionaryPropertyLabel(null, prop, null);
 
-
-            return new GraphEdgeBasic
+            var attr = prop.GetCustomAttribute<GraphEdgeAttribute>();
+            return new GraphEdgeDetails
             {
                 Label = label,
                 Properties = properties,
+                Direction = attr?.Definition?.Direction ?? GraphEdgeDirection.Out,
+                KeyLabelling = keyLabelling
             };
         }
 
@@ -131,6 +137,26 @@ namespace Chrono.Graph.Core.Utilities
                 : (!string.IsNullOrEmpty(key?.ToString() ?? "")
                     ? $"{prop.Name}_{key?.ToString() ?? ""}"
                     : prop.Name);
+        public static Type TrueType(Type type)
+        {
+            var primitivity = ObjectHelper.GetPrimitivity(type);
+            if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
+            {
+                //set the rootvar type of the child to the value generic of the dictionary
+                var dicInfo = ObjectHelper.GetDictionaryInfo(type);
+                if (dicInfo.ValType == null)
+                    throw new InvalidOperationException("Cannot determine dictionary value generic type for saving to graph db");
+                return TrueType(dicInfo.ValType);
+
+            }
+            else if (primitivity.HasFlag(GraphPrimitivity.Array))
+            {
+                //set the rootvar type of the child to the generic of the array
+                var arrayType = type.GenericTypeArguments[0];
+                return TrueType(arrayType);
+            }
+            return type;
+        }
         public static GraphEdgeDetails GetPropertyEdge(MemberInfo prop, bool optional = false, string? label = null)
         {
             var attr = prop.GetCustomAttribute<GraphEdgeAttribute>()?.Definition
@@ -178,6 +204,7 @@ namespace Chrono.Graph.Core.Utilities
 
             var result = TypeGauntlet(t);
 
+            var n = new Action(() => { });
             if (t.IsArray)
             {
                 result |= GraphPrimitivity.Array;
@@ -243,12 +270,29 @@ namespace Chrono.Graph.Core.Utilities
                     return tx == typeof(float) || tx == typeof(float?) || tx == typeof(float[])
                         || tx == typeof(long) || tx == typeof(long?) || tx == typeof(long[])
                         || tx == typeof(double) || tx == typeof(double?) || tx == typeof(double[]);
-                }}
+                }},
+                { GraphPrimitivity.Function, IsFuncOrAction }
             };
 
             result = checkBox.FirstOrDefault(c => c.Value(t)).Key; //default to non primitive
             return result == 0 ? GraphPrimitivity.Object : result;
         }
+        private static bool IsFuncOrAction(Type type)
+        {
+            if (typeof(Delegate).IsAssignableFrom(type))
+            {
+                var def = type.IsGenericType ? type.GetGenericTypeDefinition() : type;
+
+                return def == typeof(Action)
+                    || def == typeof(MulticastDelegate)
+                    || def == typeof(Delegate)
+                    || (def.Namespace == "System" && (
+                        def.Name.StartsWith("Action") || def.Name.StartsWith("Func")));
+            }
+
+            return false;
+        }
+
         private static bool IsEnumType(Type type)
             => Nullable.GetUnderlyingType(type) is Type underlyingType
                 ? underlyingType.IsEnum
@@ -259,6 +303,21 @@ namespace Chrono.Graph.Core.Utilities
             return primitivity.HasFlag(GraphPrimitivity.Object)
                 ? JsonSerializer.Serialize(JsonSerializer.Serialize(thing), new JsonSerializerOptions { })
                 : JsonSerializer.Serialize(thing);
+        }
+        public static bool TryMakeDictionary(IList<object> records, out Dictionary<string, object> dict)
+        {
+            var attempt = records.FirstOrDefault();
+            dict = attempt != null && (attempt is IDictionary<string, object> d)
+                ? d.ToDictionary(dd => dd.Key, dd => dd.Value) 
+                : new Dictionary<string, object>();
+            return attempt != null;
+        }
+        public static bool TryMakeDictionaries(IList<object> records, out List<Dictionary<string, object>> dics)
+        {
+            var attempts = records.Select(r => TryMakeDictionary([r], out var att) ? att : null)
+                .Where(a => a != null);
+            dics = attempts?.ToList() ?? [];
+            return !(attempts?.Any(a => a == null) ?? true);
         }
 
     }

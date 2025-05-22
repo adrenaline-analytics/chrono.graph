@@ -1,4 +1,6 @@
-﻿namespace Chrono.Graph.Core.Domain
+﻿using Chrono.Graph.Core.Constant;
+
+namespace Chrono.Graph.Core.Domain
 {
     public class GraphEdgeBasic
     {

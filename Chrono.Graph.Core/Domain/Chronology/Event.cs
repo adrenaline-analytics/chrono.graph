@@ -65,7 +65,7 @@ namespace Chrono.Graph.Core.Domain.Chronology
                 if (_activity == null && BehaviorKey != null)
                     _activity = EventBehaviorRegistry<IO, T>.Get(BehaviorKey);
 
-                return _activity ?? throw new InvalidOperationException("Unable to function, no acceptable behavior was found.");
+                return _activity ?? new Func<long, TimeController<IO, T>, IO, T, IO>((l, t, i, o) => i);
             }
             private set => _activity = value;
         }

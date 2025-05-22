@@ -14,10 +14,10 @@ namespace Chrono.Graph.Test.Integration
         {
             _db = new Neo4jDatabase(
                 GraphDatabase.Driver(
-                    Environment.GetEnvironmentVariable("NEO4J_URI") ?? "neo4j+s://demo.neo4jlabs.com",
+                    Environment.GetEnvironmentVariable("NEO4J_URI") ?? "bolt://localhost:7687",
                     AuthTokens.Basic(
-                        Environment.GetEnvironmentVariable("NEO4J_USER") ?? "movies",
-                        Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? "movies"
+                        Environment.GetEnvironmentVariable("NEO4J_USER") ?? "neo4j",
+                        Environment.GetEnvironmentVariable("NEO4J_PASSWORD") ?? "password"
                     )
                 ));
 

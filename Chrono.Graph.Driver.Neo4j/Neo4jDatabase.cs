@@ -37,7 +37,8 @@ namespace Chrono.Graph.Adapter.Neo4j
                 factory = Neo4jFactory.BootstrapWithMatch<T>(clauser);
                 if (joiner != null)
                 {
-                    factory.Return(joiner);
+                    //factory.Return(joiner);
+                    factory.ReturnStructured(joiner);
                 }
                 else
                 {
@@ -54,101 +55,11 @@ namespace Chrono.Graph.Adapter.Neo4j
             var result = queryResult.Count > 0 ? queryResult.Select(record =>
             {
                 T instance = ObjectHelper.Instantiate<T>();
-                Hydrate.Instance(instance, record, factory.RootVar);
+                new Hydrator2000().Hydrate(instance, record, factory.RootVar);
                 return instance;
             }).Where(i => i != null).ToList() : [];
             return ((result?.Count ?? 0) > 0) ? result ?? [] : [];
         }
-
-
-        /// <summary>
-        /// Does NOT UPDATE child objects that already exist, 
-        /// BUT Does ADD new child objects to child objects that already exist if they aren't added already
-        /// Creates object and any child objects that do not exist.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="thing"></param>
-        /// <returns></returns>
-        public Task Post<T>(T thing) where T : class => Post(thing, 20);
-        public async Task Post<T>(T thing, int depth) where T : class
-        {
-            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
-            {
-
-                var idProp = ObjectHelper.GetIdProp(typeof(T));
-                var factory = Neo4jFactory.BootstrapWithMerge<T>(thing, c => c.Where(idProp.Name, Is.Equal(idProp.GetValue(thing)), thing.GetType()));
-                factory.OnCreateSet(thing);
-                return factory;
-            });
-            if (transaction.Factory == null)
-                throw new DatabaseException("Unable to generate cypher factory");
-
-            PostChildren(thing, transaction, depth, transaction.Factory);
-            await transaction.Execute();
-        }
-
-        public Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, int depth) where T : class => throw new NotImplementedException();
-        public Task Put<T>(T thing) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), 3);
-        public Task Put<T>(T thing, int depth) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), depth);
-        public Task Put<T>(T thing, PropertyInfo idProp, int depth) where T : class
-        {
-            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-            return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
-        }
-        public async Task Put<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
-        {
-            //This portion calls the func via the transaction that uses
-            //factory.Build to create the cypher and run it against the driver
-            //This is done on the primary object thing for now
-            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
-            {
-                var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
-                factory.OnCreateSet(thing);
-                factory.OnMatchSet(thing, true);
-
-                return factory;
-            });
-
-            if (transaction?.Factory != null)
-            {
-                //if you Put instead of Post here you will overwrite already existing objects
-                PostChildren(thing, transaction, depth, transaction.Factory);
-                await transaction.Execute();
-            }
-        }
-
-
-        public Task Patch<T>(T thing) where T : class => Patch(thing, 1);
-        public Task Patch<T>(T thing, int depth) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), depth);
-        public Task Patch<T>(T thing, Action<IQueryClause> clauser) where T : class => Patch(thing, clauser, 1);
-        public async Task Patch<T>(T thing, PropertyInfo idProp, int depth) where T : class
-        {
-            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-            await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), depth);
-        }
-        public async Task Patch<T>(T thing, Action<IQueryClause> clauser, int depth) where T : class
-        {
-            //This portion calls the func via the transaction that uses
-            //factory.Build to create the cypher and run it against the driver
-            //This is done on the primary object thing for now
-            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
-            {
-                var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
-                factory.OnMatchSet(thing, false);
-
-                return factory;
-            });
-
-            if (transaction?.Factory != null)
-            {
-                PatchChildren(thing, transaction, depth, transaction.Factory);
-                await transaction.Execute();
-            }
-
-
-        }
-
-
         public Task Delete<T>(Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class => throw new NotImplementedException();
         public Task Delete<T>(T thing, int nodeDepth) where T : class => throw new NotImplementedException();
         public async Task Delete<T>(T thing) where T : class => await Delete(thing, ObjectHelper.GetIdProp<T>());
@@ -182,33 +93,126 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
 
 
+        /// <summary>
+        /// Does NOT UPDATE child objects that already exist, 
+        /// BUT Does ADD new child objects to child objects that already exist if they aren't added already
+        /// Creates object and any child objects that do not exist.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="thing"></param>
+        /// <returns></returns>
+        public Task Post<T>(T thing) where T : class => Post(thing, j => { });
+        public async Task Post<T>(T thing, Action<IJoiner> joiner) where T : class
+        {
+            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
+            {
 
-        private void PostChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory)
+                var idProp = ObjectHelper.GetIdProp(typeof(T));
+                var factory = Neo4jFactory.BootstrapWithMerge<T>(thing, c => c.Where(idProp.Name, Is.Equal(idProp.GetValue(thing)), thing.GetType()));
+                factory.OnCreateSet(thing);
+                return factory;
+            });
+            if (transaction.Factory == null)
+                throw new DatabaseException("Unable to generate cypher factory");
+
+            joiner(transaction.Factory);
+            PostChildren(thing, transaction, transaction.Factory);
+            await transaction.Execute();
+        }
+
+        public Task Put<T>(T thing) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { });
+        public Task Put<T>(T thing, Action<IJoiner> joiner) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner);
+        public Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner) where T : class
+        {
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
+            return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner);
+        }
+        public async Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class
+        {
+            //This portion calls the func via the transaction that uses
+            //factory.Build to create the cypher and run it against the driver
+            //This is done on the primary object thing for now
+            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
+                factory.OnCreateSet(thing);
+                factory.OnMatchSet(thing, true);
+
+                return factory;
+            });
+
+            if (transaction?.Factory != null)
+            {
+                //if you Put instead of Post here you will overwrite already existing objects
+                joiner(transaction.Factory);
+                PostChildren(thing, transaction, transaction.Factory);
+                await transaction.Execute();
+            }
+        }
+
+
+        public Task Patch<T>(T thing) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { });
+        public Task Patch<T>(T thing, Action<IJoiner> joiner) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner);
+        public Task Patch<T>(T thing, Action<IQueryClause> clauser) where T : class => Patch(thing, clauser, j => { });
+        public async Task Patch<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner) where T : class
+        {
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
+            await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner);
+        }
+        public async Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class
+        {
+            //This portion calls the func via the transaction that uses
+            //factory.Build to create the cypher and run it against the driver
+            //This is done on the primary object thing for now
+            var transaction = new CypherTransaction(_driver, _queryConfig, () =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
+                factory.OnMatchSet(thing, false);
+
+                return factory;
+            });
+
+            if (transaction?.Factory != null)
+            {
+                joiner(transaction.Factory);
+                PatchChildren(thing, transaction, transaction.Factory);
+                await transaction.Execute();
+            }
+
+
+        }
+
+        private void PostChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory)
         {
             var childFactory = parentFactory;
-            RecurseChildren(thing, transaction, depth, parentFactory,
-                (o, prop, currentDepth, edge) =>
-                {
-                    if (o == null) return;
-                    transaction.ContinueWith<T>(factory => PostChild(thing, o, prop, parentFactory, childFactory, edge));
-                    PostChildren(o, transaction, currentDepth, childFactory);
-                },
-                (dicInfo, key, o, prop, currentDepth, edge) => {
-                    if (o == null) return;
-                    transaction.ContinueWith<T>(factory => PostChild(thing, o, prop, parentFactory, childFactory, edge));
-                    PostChildren(o, transaction, currentDepth, childFactory);
-                }
-            );
+            WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) => {
+                if (child == null) 
+                    return;
+
+                transaction.ContinueWith<T>(factory => {
+                    childFactory = PostChild(thing, child, prop, parentFactory, childFactory, edge);
+                });
+                PostChildren(child, transaction, childFactory);
+            },
+            (dicInfo, key, child, prop, currentDepth, edge) => {
+                if (child == null) 
+                    return;
+
+                transaction.ContinueWith<T>(factory => {
+                    childFactory = PostChild(thing, child, prop, parentFactory, childFactory, edge);
+                });
+                PostChildren(child, transaction, childFactory);
+            });
         }
-        private void PostChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeBasic edge)
+        private IQueryFactory PostChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge)
         {
 
             if (parent == null)
-                return;
+                return childFactory;
             var idProp = ObjectHelper.GetIdProp(child.GetType());
             var idValue = idProp.GetValue(child);
-            var edgeDetails = new Func<GraphEdgeBasic, object, PropertyInfo, GraphEdgeDetails>((edge, o, prop) => edge != null
-                ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties }
+            var edgeDetails = new Func<GraphEdgeDetails, object, PropertyInfo, GraphEdgeDetails>((edge, o, prop) => edge != null
+                ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties, Direction = edge.Direction }
                 : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? o.GetType().Name)
             );
 
@@ -217,164 +221,156 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
                 parentFactory.MergeChild(parent, child,
                     t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
-                    sub => sub.OnCreateSet(child),
-                    () => edgeDetails(edge, child, prop)
+                    subFactory => {
+                        subFactory.OnCreateSet(child);
+                        subFactory.OnMatchSet(child, false);
+                    },
+                    subFactory => {
+                        childFactory = ConnectChildFactory(prop, parentFactory, subFactory, edge);
+                        return edgeDetails(edge, child, prop);
+                    }
                 );
             }
             else
             {
                 parentFactory.CreateChild(parent, child, prop,
-                    f => childFactory = (Neo4jFactory)f,
-                    () => edgeDetails(edge, child, prop)
+                    subFactory => childFactory = (Neo4jFactory)subFactory,
+                    subFactory => {
+                        childFactory = ConnectChildFactory(prop, parentFactory, subFactory, edge);
+                        return edgeDetails(edge, child, prop);
+                    }
                 );
             }
+
+            return childFactory;
         }
-        private void PatchChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
+        private void PatchChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory) where T : notnull
         {
-            RecurseChildren(thing, transaction, depth, parentFactory,
-                (o, prop, currentDepth, edge) =>
+            var childFactory = parentFactory;
+            WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) => {
+                if (child == null || parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode())) 
+                    return;
+
+                transaction.ContinueWith<T>(factory =>
                 {
-                    if (o == null) return;
-
-                    var type = o.GetType();
-                    var idProp = ObjectHelper.GetIdProp(type);
-                    var childFactory = parentFactory;
-                    transaction.ContinueWith<T>(factory =>
-                    {
-                        parentFactory.MergeChild(thing, o,
-                            clause => clause.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), type),
-                            subFactory =>
-                            {
-                                subFactory.OnMatchSet(o, false);
-                                childFactory = (Neo4jFactory)subFactory;
-                            },
-                            () => new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties }
-                        );
-                    });
-                },
-                (dicInfo, key, o, prop, currentDepth, edge) =>
-                {
-                    if (o == null) return;
-                    var childFactory = parentFactory;
-                    transaction.ContinueWith<T>(factory =>
-                    {
-                        var type = o.GetType();
-                        var idProp = ObjectHelper.GetIdProp(type);
-                        //var edge = ObjectInfo.GetDictionaryEdge(dicInfo, prop, key);
-
-                        parentFactory.MergeChild(thing, o,
-                            clause => clause.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), type),
-                            subFactory =>
-                            {
-                                subFactory.OnMatchSet(o, false);
-                                childFactory = (Neo4jFactory)subFactory;
-                            },
-                            () => new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties }
-                        );
-                    });
-
-                    PatchChildren(o, transaction, currentDepth, childFactory);
-
+                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge);
                 });
+                PatchChildren(child, transaction, childFactory);
+            }, 
+            (dicInfo, key, child, prop, currentDepth, edge) => {
+                if (child == null || parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode())) 
+                    return;
+
+                transaction.ContinueWith<T>(factory =>
+                {
+                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge);
+                });
+                PatchChildren(child, transaction, childFactory);
+            });
         }
-        /// <summary>
-        /// This should never be called.  Putting children means blindly overwriting existing data replacing properties with nulls
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="thing"></param>
-        /// <param name="transaction"></param>
-        /// <param name="depth"></param>
-        /// <param name="parentFactory"></param>
-        [Obsolete("Always post or patch children.  Putting children will overwrite data")]
-        private void PutChildren<T>(T thing, CypherTransaction transaction, int depth, IQueryFactory parentFactory) where T : notnull
+        private IQueryFactory PatchChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge)
         {
-            RecurseChildren(thing, transaction, depth, parentFactory,
-                (o, property, currentDepth, edge) =>
-                {
-                    if (o == null) return;
 
-                    var type = o.GetType();
-                    var idProp = ObjectHelper.GetIdProp(type);
-                    var childFactory = parentFactory;
-                    transaction.ContinueWith<T>(factory =>
-                    {
-                        //cant merge child because its already been added somewhere else?
-                        //find where it was added and make the edge connection
-                        parentFactory.MergeChild(thing, o,
-                            clause => clause.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), type),
-                            subFactory =>
-                            {
-                                subFactory.OnCreateSet(o);
-                                subFactory.OnMatchSet(o, true);
-                                childFactory = (Neo4jFactory)subFactory;
-                            }, () => {
-                                var propEdge = ObjectHelper.GetPropertyEdge(property);
-                                return new GraphEdgeDetails
-                                {
-                                    Label = edge?.Label ?? propEdge.Label,
-                                    Properties = edge?.Properties ?? propEdge.Properties ?? []
-                                };
-                            });
-                    });
-
-                    PutChildren(o, transaction, currentDepth, childFactory);
-                },
-                (dicInfo, key, o, prop, currentDepth, edge) =>
-                {
-
-                    if (o == null) return;
-                    var childFactory = parentFactory;
-                    transaction.ContinueWith<T>(factory =>
-                    {
-                        var type = o.GetType();
-                        var idProp = ObjectHelper.GetIdProp(type);
-
-                        parentFactory.MergeChild(thing, o,
-                        clause => clause.Where(idProp.Name, Is.Equal(idProp.GetValue(o)), type),
-                        subFactory =>
-                        {
-                            subFactory.OnCreateSet(o);
-                            subFactory.OnMatchSet(o, true);
-                            childFactory = (Neo4jFactory)subFactory;
-                        }, () => new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties });
-                    });
-
-                    PutChildren(o, transaction, currentDepth, childFactory);
-                }
+            if (parent == null)
+                return childFactory;
+            var idProp = ObjectHelper.GetIdProp(child.GetType());
+            var idValue = idProp.GetValue(child);
+            var edgeDetails = new Func<GraphEdgeDetails, object, PropertyInfo, GraphEdgeDetails>((edge, o, prop) => edge != null
+                ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties, Direction = edge.Direction }
+                : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? o.GetType().Name)
             );
 
+            var matchable = idValue != null;
+            if (matchable)
+            {
+                parentFactory.MergeChild(parent, child,
+                    t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
+                    subFactory => {
+                        subFactory.OnCreateSet(child);
+                        subFactory.OnMatchSet(child, false);
+                    },
+                    subFactory => {
+                        childFactory = ConnectChildFactory(prop, parentFactory, subFactory, edge);
+                        return edgeDetails(edge, child, prop);
+                    }
+                );
+            }
+            else
+            {
+                parentFactory.CreateChild(parent, child, prop,
+                    subFactory => childFactory = (Neo4jFactory)subFactory,
+                    subFactory => {
+                        childFactory = ConnectChildFactory(prop, parentFactory, subFactory, edge);
+                        return edgeDetails(edge, child, prop);
+                    }
+                );
+            }
+
+            return childFactory;
         }
-        private void RecurseChildren<T>(
+        private IQueryFactory ConnectChildFactory(PropertyInfo prop, IQueryFactory parentFactory, ISubQueryFactory subFactory, GraphEdgeDetails edge)
+        {
+            var childFactory = (Neo4jFactory)subFactory;
+            var primitivity = ObjectHelper.GetPrimitivity(prop.PropertyType);
+            if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
+            {
+                var dicInfo = ObjectHelper.GetDictionaryInfo(prop.PropertyType);
+                if (dicInfo.KeyPrimitivity.HasFlag(GraphPrimitivity.Object))
+                    throw new NotImplementedException("Non primitive dictionary keys are not yet supported");
+
+                var keyed = prop.GetCustomAttribute<GraphKeyLabellingAttribute>() != null;
+                var key = keyed 
+                    ? $"{prop.Name}.{edge.Label}" 
+                    : prop.Name;
+                if (!parentFactory.RootVar.Connections.TryGetValue(key, out var connection))
+                    throw new DataMisalignedException("Unable to determine filter for child objects");
+
+                childFactory.RootVar.SaveChildFilter = connection.SaveChildFilter != null ? [.. connection.SaveChildFilter] : null;
+                childFactory.RootVar.Connections = connection.Connections;
+
+            }
+            else
+            {
+                if (!parentFactory.RootVar.Connections.TryGetValue(prop.Name, out var connection))
+                    throw new DataMisalignedException("Cannot find connection to parent factory");
+                childFactory.RootVar.SaveChildFilter = connection.SaveChildFilter != null ? [.. connection.SaveChildFilter] : null;
+                childFactory.RootVar.Connections = connection.Connections;
+            }
+            return childFactory;
+        }
+        private void WriteChildrenRecursively<T>(
             T thing,
             CypherTransaction transaction,
-            int depth,
             IQueryFactory parentFactory,
-            Action<object?, PropertyInfo, int, GraphEdgeBasic> objectAction,
-            Action<DictionaryInfo, object?, object?, PropertyInfo, int, GraphEdgeBasic> dicAction)
+            Action<object?, PropertyInfo, CypherVar, GraphEdgeDetails> objectAction,
+            Action<DictionaryInfo, object?, object?, PropertyInfo, CypherVar, GraphEdgeDetails> dicAction)
         {
-            if (depth == 0 || thing == null)
+            if (thing == null)
                 return;
 
-            depth--;
+            var children = thing.GetType().GetProperties().Select(prop => prop).Where(prop => 
+                (parentFactory.RootVar.SaveChildFilter?.Contains(prop.Name) ?? false) 
+                && prop.GetAttribute<GraphIgnoreAttribute>() == null
+                && prop.GetValue(thing) != null
+                && (ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object)
+                    || ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary))
+                && !ObjectHelper.IsSerializable(prop));
 
-            foreach (var prop in thing.GetType().GetProperties()
-                .Where(p => p.GetAttribute<GraphIgnoreAttribute>() == null
-                    && p.GetValue(thing) != null
-                    && (ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Object)
-                        || ObjectHelper.GetPrimitivity(p.PropertyType).HasFlag(GraphPrimitivity.Dictionary))
-                    && !ObjectHelper.IsSerializable(p)))
+            foreach (var prop in children)
             {
                 var subThing = prop.GetValue(thing) ?? new DataMisalignedException($"Unable to read property {thing.GetType()}.{prop.Name}");
                 var primitivity = ObjectHelper.GetPrimitivity(subThing.GetType());
 
                 if (!primitivity.HasFlag(GraphPrimitivity.Array))
                 {
-                    objectAction(subThing, prop, depth, ObjectHelper.GetPropertyEdge(prop));
+                    if (!parentFactory.RootVar.Connections.TryGetValue(prop.Name, out var childVar))
+                        throw new DataMisalignedException("Unable to determine filter for child objects");
+                    objectAction(subThing, prop, childVar, ObjectHelper.GetPropertyEdge(prop));
                 }
                 else
                 {
-                    Action<object, object?, GraphEdgeBasic?>? onEach = null;
-                    onEach = new Action<object, object?, GraphEdgeBasic?>((parent, child, preferredEdge) =>
+                    Action<object, object?, GraphEdgeDetails?, CypherVar?>? onEach = null;
+                    onEach = new Action<object, object?, GraphEdgeDetails?, CypherVar?>((parent, child, preferredEdge, parentVar) =>
                     {
                         var parentPrimitivity = ObjectHelper.GetPrimitivity(parent);
                         var childPrimitivity = ObjectHelper.GetPrimitivity(child);
@@ -389,32 +385,38 @@ namespace Chrono.Graph.Adapter.Neo4j
                             var keyValue = child?.GetType()?.GetProperty("Key")?.GetValue(child);
                             var valueValue = child?.GetType()?.GetProperty("Value")?.GetValue(child);
                             var edge = ObjectHelper.GetDictionaryEdge(dicInfo, prop, keyValue);
+                            var key = edge.KeyLabelling != null 
+                                ? $"{prop.Name}.{edge.Label}" 
+                                : prop.Name;
+                            if (!parentFactory.RootVar.Connections.TryGetValue(key, out var childVar))
+                                throw new DataMisalignedException("Unable to determine filter for child objects");
                             if (dicInfo.ValPrimitivity.HasFlag(GraphPrimitivity.Array) || dicInfo.ValPrimitivity.HasFlag(GraphPrimitivity.Dictionary))
                             {
                                 //DeepIteration(valueValue, onEach ?? ((_, _) => { }), edge);
-                                DeepIteration(valueValue, onEach ?? ((_, _, _) => { }), edge);
+                                DeepIteration(valueValue, onEach ?? ((_, _, _, _) => { }), childVar, edge);
                             }
                             else
                             {
-                                dicAction(dicInfo, keyValue, valueValue, prop, depth, edge);
+                                dicAction(dicInfo, keyValue, valueValue, prop, childVar, edge);
                             }
                         }
                         else if (childPrimitivity.HasFlag(GraphPrimitivity.Array) || childPrimitivity.HasFlag(GraphPrimitivity.Dictionary))
                         {
-                            DeepIteration(child, onEach ?? ((_, _, _) => { }));
+                            DeepIteration(child, onEach ?? ((_, _, _, _) => { }), parentVar);
                         }
                         else
                         {
-                            objectAction(child, prop, depth, preferredEdge ?? ObjectHelper.GetPropertyEdge(prop));
+                            //if (!(parentVar?.Connections.TryGetValue($"{prop.Name}", out var childVar) ?? false))
+                            //    throw new DataMisalignedException("Unable to determine filter for child objects");
+                            objectAction(child, prop, parentVar ?? throw new DataMisalignedException("Unable to determine filter for child objects"), preferredEdge ?? ObjectHelper.GetPropertyEdge(prop));
                         }
                     });
-                    DeepIteration(subThing, onEach);
+                    DeepIteration(subThing, onEach, parentFactory.RootVar);
                 }
             }
-            depth++;
 
         }
-        private void DeepIteration(object? enumerable, Action<object, object?, GraphEdgeBasic?> each, GraphEdgeBasic? preferredEdge = null)
+        private void DeepIteration(object? enumerable, Action<object, object?, GraphEdgeDetails?, CypherVar?> each, CypherVar? parentVar, GraphEdgeDetails? preferredEdge = null)
         {
             object? enumerator;
             if (enumerable == null)
@@ -432,7 +434,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 {
                     while (((bool?)moveNextMethod?.Invoke(enumerator, null)) ?? false)
                     {
-                        each(enumerable ?? new { }, currentProperty.GetValue(enumerator), preferredEdge);
+                        each(enumerable ?? new { }, currentProperty.GetValue(enumerator), preferredEdge, parentVar);
                     }
                 }
             }
@@ -441,5 +443,6 @@ namespace Chrono.Graph.Adapter.Neo4j
                 throw new NotImplementedException($"This type of array {enumerable?.GetType()?.Name ?? "\"unknown\""} is not supported as a collection yet.");
             }
         }
+
     }
 }
