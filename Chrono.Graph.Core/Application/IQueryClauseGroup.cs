@@ -7,9 +7,9 @@ namespace Chrono.Graph.Core.Application
     {
         Dictionary<string, Clause> Clauses { get; set; }
         IEnumerable<ClauseGroup> SubClauses { get; set; }
-        IQueryClauseGroup And<T, TT>(Expression<Func<T, TT>> operand, Clause clause);
+        IQueryClauseGroup And<T, TT>(Expression<Func<T, TT?>> operand, Clause clause);
         IQueryClauseGroup AndGroup(Action<IQueryFactory> builder);
-        IQueryClauseGroup Or<T, TT>(Expression<Func<T, TT>> operand, Clause clause);
+        IQueryClauseGroup Or<T, TT>(Expression<Func<T, TT?>> operand, Clause clause);
         IQueryClauseGroup OrGroup(Action<IQueryFactory> builder);
     }
 }

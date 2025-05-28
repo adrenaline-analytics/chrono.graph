@@ -219,9 +219,10 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
         internal string GenerateMatchishStatement(Type type)
         {
-            var matchClause = Clauses
-                .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
-                .Aggregate((a, b) => $"{a}, {b}");
+            var matchClause = Clauses.Count > 0 
+                ? Clauses.Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
+                    .Aggregate((a, b) => $"{a}, {b}")
+                :"";
 
             var makeKey = new Func<string, string>(s => $"{s}{Hash}");
 
@@ -241,7 +242,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         Var = makeKey(c.Key)
                     }));
 
-                matchClause = $"{matchClause}, {subMatchClause}";
+                matchClause = $"{(!string.IsNullOrEmpty(matchClause) ? $"{matchClause}, " : "")}{subMatchClause}";
             }
 
 
@@ -258,7 +259,8 @@ namespace Chrono.Graph.Adapter.Neo4j
                 && (!existingOutVar.Equals(outVar)))
                 new DataMisalignedException($"Cypher object [{RootVar.Var}:{RootVar.Label}] is non idempotent. A data collision has occured when assigning a variable name [{RootVar.Var}] to this graph object, this object has already been asigned but with a different value.");
 
-            return $"({RootVar.Var}:{label} {{{matchClause}}})";
+            matchClause = !string.IsNullOrEmpty(matchClause) ? $" {{{matchClause}}}" : "";
+            return $"({RootVar.Var}:{label}{matchClause})";
         }
         internal string[] GeneratePropertyNullsDict(object thing)
         {
@@ -707,6 +709,12 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
 
 
+        public IQueryClauseGroup All() {
+
+            var subclause = new ClauseGroup();
+            SubClauses = SubClauses.Append(subclause);
+            return subclause;
+        }
         public IQueryClauseGroup Where<T, P>(Expression<Func<T, P?>> operand, Clause clause) => Where<T>(operand.GetExpressionPropertyName(), clause);
         public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));
         public IQueryClauseGroup Where(string propertyName, Clause clause, Type type)
