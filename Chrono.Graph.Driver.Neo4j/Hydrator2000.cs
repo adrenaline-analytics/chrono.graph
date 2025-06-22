@@ -434,6 +434,13 @@ namespace Chrono.Graph.Adapter.Neo4j
                 }
                 else
                 {
+                    //TODO Bug, two different edges pointed to same node using a dictionary key edge
+                    //records has 3 items, nodes only has 2
+                    //nodes[2] out of range, nodes[1][1] is where value resides
+                    //record 0 = node[0][0]
+                    //record 1 = node[1][0]
+                    //record 2 = node[1][1] -- we look for it at node[2][0] which doesnt exists
+                    //.First() is the issue, need to recurse more intelligently
                     var valueInstance = Instantiate(valueType, nodes[i].First());
                     Recurse(valueInstance, nodes[i].First(), records[i], cypherVar);
                     if (!instances.TryAdd(keyInstance, valueInstance))
