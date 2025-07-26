@@ -32,12 +32,16 @@ namespace Chrono.Graph.Core.Utilities
                         var enumArrayType = typeof(IEnumerable<>).MakeGenericType(generic);
                         var options = new JsonSerializerOptions();
                         options.Converters.Add(new JsonStringEnumConverter());
+                        options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 
                         return JsonSerializer.Serialize(value, enumArrayType, options);
                     }
                 }
             }
-            if (primitivity.HasFlag(GraphPrimitivity.Object) || primitivity.HasFlag(GraphPrimitivity.Array) || primitivity.HasFlag(GraphPrimitivity.Dictionary)) return JsonSerializer.Serialize(value);
+            if (primitivity.HasFlag(GraphPrimitivity.Object) || primitivity.HasFlag(GraphPrimitivity.Array) || primitivity.HasFlag(GraphPrimitivity.Dictionary)) return JsonSerializer.Serialize(value, new JsonSerializerOptions
+            {
+                ReferenceHandler = ReferenceHandler.IgnoreCycles,
+            });
 
             return value; // Return value as is for types Neo4j already supports
         }
