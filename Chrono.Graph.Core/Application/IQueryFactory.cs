@@ -12,8 +12,9 @@ namespace Chrono.Graph.Core.Application
         void HotLink<TT>(string verb, TT to, Action<IQueryClause> clause) where TT : notnull;
         IQueryFactory Command<T>(T connectTo, Action<IQueryFactory> builder, IQueryFactory factory);
         void ReturnStructured(Action<IJoiner> joiner);
+		void RemoveStaleConnections<T>(T thing) where T : class;
 
-        Statement Statement { get; set; }
+		Statement Statement { get; set; }
         Dictionary<string, Clause> Clauses { get; set; }
     }
 

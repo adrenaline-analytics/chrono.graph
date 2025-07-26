@@ -42,21 +42,34 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             throw new NotSupportedException("This transaction cannot be executed outside, it is either executed already or improperly setup");
         }
-        private async Task<(IReadOnlyList<IRecord>, IResultSummary)> Execute(Statement? statement)
+        public async Task<(IReadOnlyList<IRecord>, IResultSummary)> Execute(Statement? statement)
         {
             if (string.IsNullOrEmpty(statement?.Cypher))
                 throw new ArgumentException("Unable to determine cypher, cannot create query");
 
-            Debug.WriteLine(statement.Cypher);
+            foreach (var preload in statement.Preloads)
+                await Execute(preload.Key, preload.Value);
+
+            return await Execute(statement.Cypher, statement.InVars.ToDictionary(v => v.Key, v => v.Value.Object));
+
+        }
+        /// <summary>
+        /// Execute a raw Cypher query with optional parameters
+        /// </summary>
+        /// <param name="cypher">The Cypher query to execute</param>
+        /// <param name="parameters">Optional parameters for the query</param>
+        /// <returns>The query result as a list of dictionaries where each dictionary represents a record</returns>
+        public async Task<(IReadOnlyList<IRecord>, IResultSummary)> Execute(string cypher, Dictionary<string, object?>? parameters = null)
+        {
+            Debug.WriteLine(cypher);
             var timein = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var (result, summary) = await Driver
-                .ExecutableQuery(statement.Cypher)
-                .WithParameters(statement.InVars.ToDictionary(v => v.Key, v => v.Value.Object))
+                .ExecutableQuery(cypher)
+                .WithParameters(parameters)
                 .WithConfig(QueryConfig ?? new QueryConfig())
                 .ExecuteAsync();
 
             Debug.WriteLine($"Finished in {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -  timein} ms");
-
             return (result, summary);
 
         }

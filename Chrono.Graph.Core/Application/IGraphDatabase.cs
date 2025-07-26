@@ -170,5 +170,13 @@ namespace Chrono.Graph.Core.Application
         /// <param name="clauser"></param>
         /// <returns></returns>
         Task Delete<T>(T thing, int nodeDepth) where T : class;
+        /// <summary>
+        /// Execute a raw Cypher query with optional parameters
+        /// </summary>
+        /// <param name="cypher">The Cypher query to execute</param>
+        /// <param name="parameters">Optional parameters for the query</param>
+        /// <returns>The query result as a list of dictionaries where each dictionary represents a record</returns>
+        Task<IList<IDictionary<string, object?>>> Execute(string cypher, Dictionary<string, object?>? parameters = null);
+        Task RemoveEdge<T, TT>(T from, string edge, TT what) where T : class;
     }
 }

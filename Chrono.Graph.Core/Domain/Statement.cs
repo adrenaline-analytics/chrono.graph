@@ -7,6 +7,7 @@ namespace Chrono.Graph.Core.Domain
         public string Cypher { get; set; } = string.Empty;
         public string NodeCypher { get; set; } = string.Empty;
         public string EdgeCypher { get; set; } = string.Empty;
+        public Dictionary<string, Dictionary<string, object?>?> Preloads { get; set; } = []; //Getting ready, remove stale data, etc
         public string[] Commands { get; set; } = []; //MATCH, MERGE, etc
         public string Query { get; set; } = string.Empty;
         //public string[] Actions { get; set; } = []; //RETURN, DELETE, UPDATE ON

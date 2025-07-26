@@ -347,6 +347,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 ? "CREATE"
                 : "MERGE";
 
+
             var comandStack = Statement.Commands.Length > 0
                 ? Statement.Commands.Aggregate((a, b) => $"{a}\n{b}")
                 : throw new NotImplementedException("A commandless command is not yet implemented");
@@ -733,6 +734,66 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             return new ClauseGroup();
         }
+		public void RemoveStaleConnections<T>(T thing) where T : class
+		{
+			if (thing == null)
+				return;
 
-    }
+			var thingType = thing.GetType();
+			var rootIdProp = ObjectHelper.GetIdProp(thingType);
+			var rootId = rootIdProp.GetValue(thing);
+
+			if (rootId == null)
+				return; // Can't remove stale connections without root ID
+
+			var properties = thingType.GetProperties()
+				.Where(prop =>
+					prop.GetAttribute<GraphIgnoreAttribute>() == null
+					&& prop.GetValue(thing) != null // Don't process null properties
+					&& ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object)
+					&& !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array) // Skip arrays
+					&& !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
+					&& !ObjectHelper.IsSerializable(prop));
+
+			foreach (var prop in properties)
+			{
+				var childValue = prop.GetValue(thing);
+				if (childValue == null)
+					continue;
+
+				try
+				{
+					var childIdProp = ObjectHelper.GetIdProp(childValue.GetType());
+					var childId = childIdProp.GetValue(childValue);
+
+					if (childId == null)
+						continue; // Can't determine ID, skip edge removal
+
+					var edge = ObjectHelper.GetPropertyEdge(prop);
+					var edgeLabel = edge?.Label ?? prop.Name;
+					var rootLabel = ObjectHelper.GetObjectLabel(thingType);
+					var childLabel = ObjectHelper.GetObjectLabel(childValue.GetType());
+
+					// Build and execute Cypher to remove stale edges
+					var cypher =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+WHERE NOT target.{childIdProp.Name} = $childId
+DELETE rel;";
+
+                    var parameters = new Dictionary<string, object?> {
+                        { "rootId", rootId },
+                        { "childId", childId }
+                    };
+                    Statement.Preloads.Add(cypher, parameters);
+				}
+				catch
+				{
+					// If we can't get ID property or something fails, skip this property
+					continue;
+				}
+			}
+		}
+
+
+	}
 }
