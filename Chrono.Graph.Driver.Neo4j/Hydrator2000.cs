@@ -3,6 +3,7 @@ using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Utilities;
 using Neo4j.Driver;
 using System.Collections;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 
@@ -474,9 +475,11 @@ namespace Chrono.Graph.Adapter.Neo4j
                         || instanceProp.PropertyType == typeof(DateTime?))
                     {
                         instanceProp.SetValue(instance,
-                            DateTime.TryParse(nodeProp.Value.As<string>(), out var date)
-                                ? date
-                                : throw new DataMisalignedException("Unable to read date value"));
+							DateTime.TryParse(nodeProp.Value.As<string>(), CultureInfo.InvariantCulture,
+								DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+								out var date)
+								? date
+								: throw new DataMisalignedException("Unable to read date value"));
                     }
                     else if (instanceProp.PropertyType == typeof(Guid))
                     {
