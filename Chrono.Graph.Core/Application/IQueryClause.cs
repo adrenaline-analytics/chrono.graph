@@ -7,6 +7,7 @@ namespace Chrono.Graph.Core.Application
     {
         Dictionary<string, Clause> Clauses { get; }
 
+        IQueryClauseGroup All();
         IQueryClauseGroup Where<T, P>(Expression<Func<T, P?>> operand, Clause clause);
         IQueryClauseGroup Where<T>(string operand, Clause clause);
         IQueryClauseGroup Where(string operand, Clause clause, Type type);
