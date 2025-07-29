@@ -21,7 +21,7 @@ namespace Chrono.Graph.Core.Utilities
             if (value is Guid guidValue) return guidValue.ToString();
             if (value is DateTime dateTimeValue) return dateTimeValue.ToString("o"); // Convert DateTime to ISO 8601 format
             if (value.GetType().IsEnum) return (int)value;
-            if (primitivity.HasFlag(GraphPrimitivity.Array))
+            if (primitivity.HasFlag(GraphPrimitivity.Array) && !primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var typeArgs = value.GetType().GetGenericArguments();
                 if (typeArgs.Length > 0)

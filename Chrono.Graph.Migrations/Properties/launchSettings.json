@@ -4,6 +4,7 @@
       "commandName": "Project",
       //"commandLineArgs": "--db=adrenaline --rollback=003_class_list_loretta_lynn_amateur",
       //"commandLineArgs": "--db=adrenaline --rollback=004_class_list_diamond_park",
+      //"commandLineArgs": "--db=adrenaline --rollback=005_invite_codes",
       "commandLineArgs": "--db=adrenaline",
       "workingDirectory": "..\\..\\", // optional: sets working dir to solution root
       "environmentVariables": {

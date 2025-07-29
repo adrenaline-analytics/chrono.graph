@@ -535,13 +535,22 @@ namespace Chrono.Graph.Adapter.Neo4j
                         IEnumerable<string>? items;
                         try
                         {
-                            items = (JsonSerializer.Deserialize(nodeProp.Value?.ToString() ?? "", 
-                                           typeof(IEnumerable<string>))) as IEnumerable<string>;
+                            //TODO this logic needs to be ported to all enumeerable types
+							// Could be a Neo4j array, populate items from it as strings
+                            if (nodeProp.Value is IEnumerable<object> rawArray)
+                            {
+                                items = rawArray.Select(x => x?.ToString() ?? "").ToList();
+                            }
+                            else
+                            {
+                                items = (JsonSerializer.Deserialize(nodeProp.Value?.ToString() ?? "",
+                                               typeof(IEnumerable<string>))) as IEnumerable<string>;
+                            }
                         }
                         catch (JsonException)
-                        {
-                            items = new List<string>();
-                        }
+						{
+							items = new List<string>();
+						}
 
                         // Create an instance of the HashSet<MyEnum>
                         var hashSet = Instantiate(hashSetType);
