@@ -1,6 +1,6 @@
 # Chrono.Graph.Migrations
 
-A lightweight, flexible Neo4j migration tool designed for initializing and managing schema/data scripts using Cypher. Built for the **Chrono Graph** system, but adaptable to any Neo4j-based project.
+A lightweight, flexible Neo4j migration tool designed for initializing and managing schema/data scripts using Cypher or C# scripts (.csx). Built for the **Chrono Graph** system, but adaptable to any Neo4j-based project.
 
 Supports tracking applied scripts, dry runs, rollbacks, and colorful output — all from the command line.
 
@@ -9,7 +9,7 @@ Supports tracking applied scripts, dry runs, rollbacks, and colorful output — 
 ## 🚀 Features
 
 - 🔄 Tracks applied scripts using `:ScriptRun` nodes in your database
-- 📦 Loads and runs `.cypher` scripts from a folder
+- 📦 Loads and runs `.cypher` and `.csx` scripts from a folder
 - 📝 Supports dry-run mode for safe previews
 - 🔁 Rollbacks with matching `.rollback.cypher` files
 - 🧠 Smart CLI: `--help`, `--list`, `--plan`, `--verbose`, `--summary`
@@ -40,7 +40,7 @@ dotnet run --project Chrono.Graph.Migrations --db=adrenaline --summary
 | `--uri=<uri>`             | Neo4j URI (default: `bolt://localhost:7687` or `$NEO4J_URI`)               |
 | `--user=<username>`       | Username (default: `neo4j` or `$NEO4J_USER`)                                |
 | _(password is read only from)_<br>`NEO4J_PASSWORD` | Password environment variable                          |
-| `--dir=<path>`            | Path to `.cypher` scripts (default: `scripts/init`)                         |
+| `--dir=<path>`            | Path to `.cypher` / `.csx` scripts (default: `scripts/init`)                |
 | `--dry-run`               | Simulate execution without applying changes                                |
 | `--only=<filename>`       | Only run a specific script                                                  |
 | `--rollback=<filename>`   | Roll back a script by name (e.g., `001_class_list_template.cypher`)         |
@@ -54,7 +54,7 @@ dotnet run --project Chrono.Graph.Migrations --db=adrenaline --summary
 
 ## 💾 Tracking Applied Scripts
 
-Each time a script is run, the following Cypher is recorded:
+Each time a script is run, the following Cypher is recorded (same for `.cypher` and `.csx`):
 
 ```cypher
 CREATE (:ScriptRun {

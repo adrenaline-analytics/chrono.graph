@@ -9,10 +9,20 @@
 
   <ItemGroup>
     <PackageReference Include="Neo4j.Driver" Version="5.27.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.10.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Scripting" Version="4.10.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="scripts\init\001_class_list_template.cypher">
+    <ProjectReference Include="..\Chrono.Graph.Driver.Neo4j\Chrono.Graph.Adapter.Neo4j.csproj" />
+    <ProjectReference Include="..\Chrono.Graph.Core\Chrono.Graph.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="scripts\init\**\*.cypher">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Update="scripts\init\**\*.csx">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
   </ItemGroup>
