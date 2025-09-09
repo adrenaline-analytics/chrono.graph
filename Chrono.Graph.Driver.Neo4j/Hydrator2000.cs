@@ -1,16 +1,16 @@
-﻿using Chrono.Graph.Core.Constant;
-using Chrono.Graph.Core.Domain;
-using Chrono.Graph.Core.Utilities;
-using Neo4j.Driver;
-using System.Collections;
+﻿using System.Collections;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
+using Chrono.Graph.Core.Constant;
+using Chrono.Graph.Core.Domain;
+using Chrono.Graph.Core.Utilities;
+using Neo4j.Driver;
 
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
-    public class Hydrator2000 
+    public class Hydrator2000
     {
         private Dictionary<object, object> _cache = [];
         private HashSet<string> _reads = [];
@@ -80,7 +80,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var id = node.Properties.FirstOrDefault(p => p.Key.ToLower() == idProp.Name.ToLower()).Value;
             if (id != null)
             {
-                if(idProp.SetMethod != null)
+                if (idProp.SetMethod != null)
                     idProp.SetValue(instance, id);
                 _cache[id] = instance;
             }
@@ -99,7 +99,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         if (item is IDictionary<string, object> map && map.TryGetValue("edge", out var edgeObj) && edgeObj is IRelationship rel)
                         {
                             cypherVar.Edge.Properties.Merge(
-                                rel.Properties?.ToDictionary(p => p.Key, p => p.Value?.ToString() ?? "") 
+                                rel.Properties?.ToDictionary(p => p.Key, p => p.Value?.ToString() ?? "")
                                 ?? []);
                             break; // take the first valid edge only
                         }
@@ -108,7 +108,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 else if (wrappedList is IDictionary<string, object> singleMap && singleMap.TryGetValue("edge", out var singleEdgeObj) && singleEdgeObj is IRelationship rel)
                 {
                     cypherVar.Edge.Properties.Merge(
-                        rel.Properties?.ToDictionary(p => p.Key, p => p.Value?.ToString() ?? "") 
+                        rel.Properties?.ToDictionary(p => p.Key, p => p.Value?.ToString() ?? "")
                         ?? []);
                 }
             }
@@ -195,18 +195,18 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             Primitives(instance, node);
 
-            foreach(var connectedVar in cypherVar.Connections)
+            foreach (var connectedVar in cypherVar.Connections)
             {
 
                 var labelProperties = ObjectHelper.GetLabelProperty(instance.GetType(), connectedVar.Value.Edge?.Label ?? connectedVar.Value.Label);
                 PropertyInfo? property;
-                if((labelProperties?.Any() ?? false) && (property = labelProperties.FirstOrDefault()) != null )
+                if ((labelProperties?.Any() ?? false) && (property = labelProperties.FirstOrDefault()) != null)
                 {
                     var primitivity = ObjectHelper.GetPrimitivity(property.PropertyType);
                     if (!primitivity.HasFlag(GraphPrimitivity.Array))
                     {
                         //BASIC OBJECTS
-                        if (record.TryGetValue(connectedVar.Value.Var, out var rawConnected) 
+                        if (record.TryGetValue(connectedVar.Value.Var, out var rawConnected)
                             && rawConnected is IList<object> rawList
                             && ObjectHelper.TryMakeDictionary(rawList, out var connectedRecord)
                             && TryReadNode(connectedRecord, out var connectedNode))
@@ -237,7 +237,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         if (record.TryGetValue(connectedVar.Value.Var, out var rawConnected)
                             && rawConnected is IList<object> rawList
                             && ObjectHelper.TryMakeDictionaries(rawList, out var connectedRecords)
-                            && TryReadNodes(connectedRecords, out var connectedNodes)) 
+                            && TryReadNodes(connectedRecords, out var connectedNodes))
                         {
 
                             var parentPath = $"{node.ElementId}.{instance.GetType().Name}.{property.Name}";
@@ -275,7 +275,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         var keyType = property.PropertyType.GenericTypeArguments[0];
                         var valueType = property.PropertyType.GenericTypeArguments[1];
                         var dictType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
-                        var buffer = new Dictionary<object, object?> ();
+                        var buffer = new Dictionary<object, object?>();
                         if (_reads.Add($"{node.ElementId}.{instance.GetType().Name}.{property.Name}.{connectedVar.Value.Var}")
                             && record.TryGetValue(connectedVar.Value.Var, out var rawConnected)
                             && rawConnected is IList<object> rawList
@@ -336,13 +336,13 @@ namespace Chrono.Graph.Adapter.Neo4j
         private void Recurse(List<object?> instances, Type type, List<Dictionary<string, object>> records, CypherVar cypherVar, string myNeo4JId, IEnumerable<IGrouping<string, INode>> nodes, string parentPath)
         {
             // 1. Collect valid Neo4j IDs from edge list, if defined
-            foreach(var record in records)
+            foreach (var record in records)
             {
                 //HashSet<string>? allowedNodeIds = null;
                 if (!string.IsNullOrEmpty(cypherVar.Edge?.Var) &&
                     record.TryGetValue("node", out var nodeObj) &&
-                    record.TryGetValue("edge", out var edgeRecordObj) && 
-                    TryReadNode(record, out var node) && 
+                    record.TryGetValue("edge", out var edgeRecordObj) &&
+                    TryReadNode(record, out var node) &&
                     node != null)
                 {
                     var nodeId = node.ElementId;
@@ -361,14 +361,14 @@ namespace Chrono.Graph.Adapter.Neo4j
                     //    .Where(rel => rel.StartNodeElementId == myNeo4JId || rel.EndNodeElementId == myNeo4JId)
                     //    .Select(rel => rel.StartNodeElementId == myNeo4JId ? rel.EndNodeElementId : rel.StartNodeElementId)
                     //    .ToHashSet();
-                //}
+                    //}
 
-                //foreach (var nodeGroup in nodes)
-                //{
+                    //foreach (var nodeGroup in nodes)
+                    //{
                     //var node = nodeGroup.First();
-                        // 2. If there are valid edge constraints, skip any node not connected by an edge
-                        //if (allowedNodeIds != null && !allowedNodeIds.Contains(nodeId))
-                        //    continue;
+                    // 2. If there are valid edge constraints, skip any node not connected by an edge
+                    //if (allowedNodeIds != null && !allowedNodeIds.Contains(nodeId))
+                    //    continue;
 
                 }
             }
@@ -378,14 +378,14 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             if (!TryReadNodes(records, out var nodes))
                 return;
-                //throw new ArgumentException("Nodes unreadable");
+            //throw new ArgumentException("Nodes unreadable");
 
-            for(var i = 0; i < records.Count; i++)
+            for (var i = 0; i < records.Count; i++)
             {
                 var keyInstance = Instantiate(keyType);
                 //if an enum
-                if (keyType.IsEnum && records[i].TryGetValue("edge", out var recordEdge) 
-                    && recordEdge is IRelationship edge 
+                if (keyType.IsEnum && records[i].TryGetValue("edge", out var recordEdge)
+                    && recordEdge is IRelationship edge
                     && (edge.Properties?.TryGetValue("enum", out var enumValue) ?? false)
                     && enumValue != null)
                 {
@@ -475,11 +475,11 @@ namespace Chrono.Graph.Adapter.Neo4j
                         || instanceProp.PropertyType == typeof(DateTime?))
                     {
                         instanceProp.SetValue(instance,
-							DateTime.TryParse(nodeProp.Value.As<string>(), CultureInfo.InvariantCulture,
-								DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-								out var date)
-								? date
-								: throw new DataMisalignedException("Unable to read date value"));
+                            DateTime.TryParse(nodeProp.Value.As<string>(), CultureInfo.InvariantCulture,
+                                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                                out var date)
+                                ? date
+                                : throw new DataMisalignedException("Unable to read date value"));
                     }
                     else if (instanceProp.PropertyType == typeof(Guid))
                     {
@@ -504,7 +504,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                         List<string> stringList = [];
                         var vals = nodeProp.Value.As<string>();
-                        if(vals != "[]")
+                        if (vals != "[]")
                         {
                             vals = vals.Trim();
                             vals = vals.StartsWith("\"") ? vals.Substring(1) : vals;
@@ -525,7 +525,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     {
                         instanceProp.SetValue(instance, nodeProp.Value.As<IList<bool>>());
                     }
-                    else if (instanceProp.PropertyType.IsGenericType && 
+                    else if (instanceProp.PropertyType.IsGenericType &&
                          instanceProp.PropertyType.GetGenericTypeDefinition() == typeof(HashSet<>))
                     {
                         var generic = instanceProp.PropertyType.GetGenericArguments()[0]; // Get the type argument (e.g., MyEnum)
@@ -536,7 +536,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         try
                         {
                             //TODO this logic needs to be ported to all enumeerable types
-							// Could be a Neo4j array, populate items from it as strings
+                            // Could be a Neo4j array, populate items from it as strings
                             if (nodeProp.Value is IEnumerable<object> rawArray)
                             {
                                 items = rawArray.Select(x => x?.ToString() ?? "").ToList();
@@ -548,15 +548,15 @@ namespace Chrono.Graph.Adapter.Neo4j
                             }
                         }
                         catch (JsonException)
-						{
-							items = new List<string>();
-						}
+                        {
+                            items = new List<string>();
+                        }
 
                         // Create an instance of the HashSet<MyEnum>
                         var hashSet = Instantiate(hashSetType);
 
                         // Add items to the HashSet using reflection
-                        var addMethod = hashSetType.GetMethod("Add") 
+                        var addMethod = hashSetType.GetMethod("Add")
                             ?? throw new FieldAccessException("The `Add()` method is no longer supported on HashSet<> objects");
 
                         foreach (var item in items ?? [])
@@ -593,7 +593,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                         //lands here if the record has a value for this node property but the instance type is object
                         //if this were a connected object and not json there would be no node property in the record
                         var json = nodeProp.Value.As<string>();
-                        var newObj = JsonSerializer.Deserialize(json, instanceProp.PropertyType);
+                        var newObj = JsonSerializer.Deserialize(json, instanceProp.PropertyType, Chrono.Graph.Core.Utilities.JsonDefaults.Options);
                         instanceProp.SetValue(instance, newObj);
                     }
                 }
