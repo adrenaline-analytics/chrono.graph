@@ -1,20 +1,21 @@
-﻿using Castle.Core.Internal;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Text;
+using System.Xml.Schema;
+using Castle.Core.Internal;
 using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
-using System.Diagnostics.CodeAnalysis;
-using System.Linq.Expressions;
-using System.Reflection;
-using System.Text;
-using System.Xml.Schema;
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
     public class Neo4jFactory : Neo4jJoiner, IQueryFactory
     {
         private Dictionary<string, ISubQueryFactory> _subFactories = [];
+        private readonly HashSet<string> _rawParamKeys = new();
 
         public string Hash { get; private set; }
         public bool Locked { get; private set; }
@@ -48,7 +49,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (thing == null)
                 throw new DataMisalignedException("Cannot determine object type");
 
-                return BootstrapStatement(CypherConstants.MatchCommand, clauser, thing.GetType(), registry, thing.GetHashCode());
+            return BootstrapStatement(CypherConstants.MatchCommand, clauser, thing.GetType(), registry, thing.GetHashCode());
         }
         private static IQueryFactory ConnectChildWithMerge<T>(T thing, Action<IQueryClause> clauser, Dictionary<int, IQueryFactory> registry)
         {
@@ -76,7 +77,13 @@ namespace Chrono.Graph.Adapter.Neo4j
                 GraphType = GraphObjectType.Node,
                 Type = type,
             };
-            command += $" {factory.GenerateMatchishStatement(type)}";
+            // For MATCH commands, we will emit a WHERE clause rather than inline property maps
+            // For MERGE (and others), keep inline property maps to preserve idempotency
+            var includeInlineProperties = command == CypherConstants.MergeCommand ? true : false;
+            var pattern = factory.GenerateNodePattern(type, includeInlineProperties, out var whereClause);
+            command += $" {pattern}";
+            if (!string.IsNullOrEmpty(whereClause) && command.StartsWith(CypherConstants.MatchCommand))
+                command += $" {whereClause}";
             statement.Commands = [.. statement.Commands, command];
             return factory;
         }
@@ -118,7 +125,8 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             statement.InVars.Merge(vars.ToDictionary(
                 i => makeKey(i.Key),
-                i => new CypherVar {
+                i => new CypherVar
+                {
                     Object = i.Value,
                     Var = makeKey(i.Key)
                 }));
@@ -192,7 +200,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal Dictionary<string, Clause> RecurseSubClausesForVars(IEnumerable<ClauseGroup>? clauseGroups)
         {
             var result = new Dictionary<string, Clause>();
-            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
+            foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 result.Merge(clauseGroup.Clauses);
                 var subVars = RecurseSubClausesForVars(clauseGroup.SubClauses);
@@ -204,31 +212,83 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal string RecurseSubClausesForQuery(IEnumerable<ClauseGroup>? clauseGroups)
         {
             var result = new List<string>();
-            foreach(var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0 ))
+            foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 var values = clauseGroup.Clauses
                         .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
                         .Aggregate((a, b) => $"{a}, {b}");
                 var subValues = RecurseSubClausesForQuery(clauseGroup.SubClauses);
-                if(!string.IsNullOrEmpty(subValues))
+                if (!string.IsNullOrEmpty(subValues))
                     values = $"{values}, {subValues}";
 
                 result.Add(values);
             }
             return result.Count > 0 ? result.Aggregate((a, b) => $"{a}, {b}") : "";
         }
+        private object StandardizeOperandForCypher(string op, object? operand)
+        {
+            if (op == CypherConstants.InOperator)
+            {
+                if (operand == null)
+                    return Array.Empty<object>();
+                if (operand is string s)
+                    return new[] { s };
+                if (operand is System.Collections.IEnumerable && operand is not string)
+                    return operand;
+                return new[] { operand };
+            }
+            return operand ?? new object();
+        }
+        private static string MapOperatorForWhere(string op)
+        {
+            if (op == CypherConstants.EqualsOperator) return "=";
+            return op;
+        }
+        private string BuildPredicate(string varName, KeyValuePair<string, Clause> clause)
+        {
+            var key = clause.Key;
+            var op = clause.Value.Operator;
+            if (op == CypherConstants.ExistsFunction)
+                return $"EXISTS({varName}.{key})";
+            if (op == CypherConstants.NotOperator && clause.Value.Operand is Clause inner)
+            {
+                var innerOp = inner.Operator == CypherConstants.EqualsOperator ? "=" : inner.Operator;
+                var innerKey = key;
+                var param = $"${innerKey}{Hash}";
+                return $"NOT ({varName}.{innerKey} {innerOp} {param})";
+            }
+            var mapped = MapOperatorForWhere(op);
+            return $"{varName}.{key} {mapped} ${key}{Hash}";
+        }
+        internal string RecurseSubClausesForWhere(IEnumerable<ClauseGroup>? clauseGroups, string varName)
+        {
+            var groups = new List<string>();
+            foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
+            {
+                var predicates = clauseGroup.Clauses
+                    .Select(c => BuildPredicate(varName, c))
+                    .ToList();
+                var sub = RecurseSubClausesForWhere(clauseGroup.SubClauses, varName);
+                if (!string.IsNullOrEmpty(sub))
+                    predicates.Add(sub);
+                if (predicates.Count > 0)
+                    groups.Add(predicates.Aggregate((a, b) => $"{a} AND {b}"));
+            }
+            return groups.Count > 0 ? groups.Aggregate((a, b) => $"{a} AND {b}") : string.Empty;
+        }
         internal string GenerateMatchishStatement(Type type)
         {
-            var matchClause = Clauses.Count > 0 
+            var matchClause = Clauses.Count > 0
                 ? Clauses.Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
                     .Aggregate((a, b) => $"{a}, {b}")
-                :"";
+                : "";
 
             var makeKey = new Func<string, string>(s => $"{s}{Hash}");
 
             Statement.InVars.Merge(Clauses.ToDictionary(c => makeKey(c.Key), c =>
-                new CypherVar {
-                    Object = c.Value.Operand ?? new object(),
+                new CypherVar
+                {
+                    Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
                     Var = makeKey(c.Key)
                 }));
 
@@ -237,8 +297,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var subMatchClause = RecurseSubClausesForQuery(SubClauses);
                 var subVars = RecurseSubClausesForVars(SubClauses);
                 Statement.InVars.Merge(subVars.ToDictionary(c => makeKey(c.Key), c =>
-                    new CypherVar {
-                        Object = c.Value.Operand ?? new object(),
+                    new CypherVar
+                    {
+                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
                         Var = makeKey(c.Key)
                     }));
 
@@ -262,12 +323,103 @@ namespace Chrono.Graph.Adapter.Neo4j
             matchClause = !string.IsNullOrEmpty(matchClause) ? $" {{{matchClause}}}" : "";
             return $"({RootVar.Var}:{label}{matchClause})";
         }
+        internal string GenerateNodePattern(Type type, bool includeInlineProperties, out string? whereClause)
+        {
+            whereClause = null;
+
+            var makeKey = new Func<string, string>(s => $"{s}{Hash}");
+
+            // Populate parameters for all clauses (both inline map and WHERE share params)
+            if (Clauses.Count > 0)
+            {
+                foreach (var c in Clauses)
+                {
+                    var key = makeKey(c.Key);
+                    Statement.InVars[key] = new CypherVar
+                    {
+                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Var = key
+                    };
+                    if (c.Value.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(key);
+                }
+            }
+
+            if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
+            {
+                var subVars = RecurseSubClausesForVars(SubClauses);
+                foreach (var c in subVars)
+                {
+                    var key = makeKey(c.Key);
+                    Statement.InVars[key] = new CypherVar
+                    {
+                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Var = key
+                    };
+                    if (c.Value.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(key);
+                }
+            }
+
+            var label = Utils.StandardizeNodeLabel(ObjectHelper.GetObjectLabel(type));
+            var outVar = new CypherVar
+            {
+                GraphType = GraphObjectType.Node,
+                Label = label,
+                Var = RootVar.Var
+            };
+
+            if (!Statement.OutVars.TryAdd(RootVar.Var, outVar)
+                && Statement.OutVars.TryGetValue(RootVar.Var, out var existingOutVar)
+                && (!existingOutVar.Equals(outVar)))
+                new DataMisalignedException($"Cypher object [{RootVar.Var}:{RootVar.Label}] is non idempotent. A data collision has occured when assigning a variable name [{RootVar.Var}] to this graph object, this object has already been asigned but with a different value.");
+
+            string inlineMap = string.Empty;
+            if (includeInlineProperties)
+            {
+                var mapItems = new List<string>();
+                if (Clauses.Count > 0)
+                    mapItems.Add(Clauses
+                        .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
+                        .Aggregate((a, b) => $"{a}, {b}"));
+
+                if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
+                {
+                    var subMatchClause = RecurseSubClausesForQuery(SubClauses);
+                    if (!string.IsNullOrEmpty(subMatchClause))
+                        mapItems.Add(subMatchClause);
+                }
+
+                inlineMap = mapItems.Count > 0 ? $" {{{mapItems.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a}, {b}")}}}" : string.Empty;
+            }
+            else
+            {
+                // Build WHERE clause using '=' for equality instead of ':'
+                var predicates = new List<string>();
+                if (Clauses.Count > 0)
+                    predicates.Add(Clauses
+                        .Select(c => BuildPredicate(RootVar.Var, c))
+                        .Aggregate((a, b) => $"{a} AND {b}"));
+
+                if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
+                {
+                    var subWhere = RecurseSubClausesForWhere(SubClauses, RootVar.Var);
+                    if (!string.IsNullOrEmpty(subWhere))
+                        predicates.Add(subWhere);
+                }
+
+                if (predicates.Count > 0)
+                    whereClause = $"WHERE {predicates.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a} AND {b}")}";
+            }
+
+            return $"({RootVar.Var}:{label}{inlineMap})";
+        }
         internal string[] GeneratePropertyNullsDict(object thing)
         {
             var type = thing.GetType();
             var idProp = ObjectHelper.GetIdProp(type);
             return type.GetProperties()
-                .Where(p =>  p.GetAttribute<GraphIgnoreAttribute>() == null && p.GetValue(thing) == null)
+                .Where(p => p.GetAttribute<GraphIgnoreAttribute>() == null && p.GetValue(thing) == null)
                 .Select(p => $"{p.Name}").ToArray();
         }
         internal Dictionary<string, object> GeneratePropertiesDict(object thing)
@@ -341,7 +493,10 @@ namespace Chrono.Graph.Adapter.Neo4j
             Locked = true;
 
             foreach (var kvp in Statement.InVars)
-                Statement.InVars[kvp.Key].Object = Utils.StandardizePropertyValue(kvp.Value.Object);
+            {
+                if (!_rawParamKeys.Contains(kvp.Key))
+                    Statement.InVars[kvp.Key].Object = Utils.StandardizePropertyValue(kvp.Value.Object);
+            }
 
             var edgeAction = Statement.Commands.Any(c => c.StartsWith(CypherConstants.CreateCommand))
                 ? "CREATE"
@@ -360,8 +515,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             var returns = actionAggregate(CypherConstants.ReturnCommand, Statement.Returns);
             var deletes = actionAggregate(CypherConstants.DeleteCommand, Statement.Deletes);
 
-            var withs = Statement.Withs.Any(w => !string.IsNullOrEmpty(w)) 
-                ? Statement.Withs.Where(i => !string.IsNullOrEmpty(i)).Aggregate((a, b) => $"{a}\n{b}") 
+            var withs = Statement.Withs.Any(w => !string.IsNullOrEmpty(w))
+                ? Statement.Withs.Where(i => !string.IsNullOrEmpty(i)).Aggregate((a, b) => $"{a}\n{b}")
                 : string.Empty;
 
             var doOns = Statement.DoOns.Any(d => !string.IsNullOrEmpty(d.Key) && !string.IsNullOrEmpty(d.Value))
@@ -425,7 +580,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
                 edges = InboundEdges
                     .SelectMany(d => d.Value
-                        .Select((edge, index) => {
+                        .Select((edge, index) =>
+                        {
                             var edgeVar = $"edge{Hash}{d.Key}{index}";
                             var edgeLabel = Utils.StandardizeEdgeLabel(edge.Label);
                             var edgeProperties = edge.Properties.Count > 0
@@ -512,7 +668,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 ? Command(child, f => { }, ConnectChildWithMatch(child, q => q.Where(idProp.Name, Is.Equal(idValue), childType), GlobalObjectRegistry))
                 : Command(child, f => { }, ConnectChildWithCreate(child, prop, GlobalObjectRegistry));
 
-            if(matchable)
+            if (matchable)
                 subFactory.OnCreateSet(child);
 
             builder(subFactory);
@@ -557,18 +713,19 @@ namespace Chrono.Graph.Adapter.Neo4j
         public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> build) => throw new NotImplementedException();
         public void MergeChild<A, B>(A parent, B child, PropertyInfo connectedProperty, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder) where A : notnull
             => MergeChild(parent, child, clauser, builder,
-                (f) => {
-                        var attr = connectedProperty.GetCustomAttribute<GraphEdgeAttribute>()?.Definition
-                            ?? connectedProperty.GetType().GetCustomAttribute<GraphEdgeAttribute>()?.Definition;
-                        return new GraphEdgeDetails
-                        {
-                            Label = !string.IsNullOrEmpty(attr?.Label ?? "") ? attr?.Label ?? connectedProperty.Name : connectedProperty.Name,
-                            Direction = attr != null ? attr.Direction : GraphEdgeDirection.Out
-                        };
-                    });
+                (f) =>
+                {
+                    var attr = connectedProperty.GetCustomAttribute<GraphEdgeAttribute>()?.Definition
+                        ?? connectedProperty.GetType().GetCustomAttribute<GraphEdgeAttribute>()?.Definition;
+                    return new GraphEdgeDetails
+                    {
+                        Label = !string.IsNullOrEmpty(attr?.Label ?? "") ? attr?.Label ?? connectedProperty.Name : connectedProperty.Name,
+                        Direction = attr != null ? attr.Direction : GraphEdgeDirection.Out
+                    };
+                });
         public void MergeChild<A, B>(A parent, B child, Action<IQueryClause> clauser, Action<ISubQueryFactory> builder, Func<ISubQueryFactory, GraphEdgeDetails> edgeDefiner) where A : notnull
         {
-            if(GlobalObjectRegistry.TryGetValue(parent.GetHashCode(), out var parentFactory))
+            if (GlobalObjectRegistry.TryGetValue(parent.GetHashCode(), out var parentFactory))
             {
                 if (parent.Equals(child))
                     throw new ArgumentException("Parent connecting to itself, not sure this is okay yet");
@@ -652,7 +809,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     };
 
                     if (!string.IsNullOrEmpty(child.Edge?.Var))
-                        with.Collapses = [..with.Collapses, child.Edge.Var];
+                        with.Collapses = [.. with.Collapses, child.Edge.Var];
 
                     withs.Push(with);
 
@@ -661,7 +818,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             }
 
             var finalVars = new List<string>();
-            foreach(var outVar in outVars)
+            foreach (var outVar in outVars)
             {
                 finalVars.Add(outVar.Var);
                 if (!string.IsNullOrEmpty(outVar.Edge?.Var))
@@ -670,11 +827,11 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             if (withs.Count > 0)
             {
-                while(withs.TryPop(out var with))
+                while (withs.TryPop(out var with))
                 {
                     var withBlock = new StringBuilder();
 
-                    if(with.Collapses != null)
+                    if (with.Collapses != null)
                         finalVars = finalVars.Where(v => !with.Collapses.Contains(v)).ToList();
 
                     var prependVars = finalVars.Where(v => v != with.Var);
@@ -716,7 +873,8 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
 
 
-        public IQueryClauseGroup All() {
+        public IQueryClauseGroup All()
+        {
 
             var subclause = new ClauseGroup();
             SubClauses = SubClauses.Append(subclause);
@@ -750,16 +908,16 @@ namespace Chrono.Graph.Adapter.Neo4j
         /// <typeparam name="T">Class to inspect</typeparam>
         /// <param name="thing">Remove old connections on this object</param>
 		public void RemoveStaleConnections<T>(T thing) where T : class
-		{
-			if (thing == null)
-				return;
+        {
+            if (thing == null)
+                return;
 
-			var thingType = thing.GetType();
-			var rootIdProp = ObjectHelper.GetIdProp(thingType);
-			var rootId = rootIdProp.GetValue(thing);
+            var thingType = thing.GetType();
+            var rootIdProp = ObjectHelper.GetIdProp(thingType);
+            var rootId = rootIdProp.GetValue(thing);
 
-			if (rootId == null)
-				return; // Can't remove stale connections without root ID
+            if (rootId == null)
+                return; // Can't remove stale connections without root ID
 
             var properties = thingType.GetProperties()
                 .Where(prop =>
@@ -770,27 +928,27 @@ namespace Chrono.Graph.Adapter.Neo4j
                     && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
                     && ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object));
 
-			foreach (var prop in properties)
-			{
-				var childValue = prop.GetValue(thing);
-				if (childValue == null)
-					continue;
+            foreach (var prop in properties)
+            {
+                var childValue = prop.GetValue(thing);
+                if (childValue == null)
+                    continue;
 
-				try
-				{
-					var childIdProp = ObjectHelper.GetIdProp(childValue.GetType());
-					var childId = childIdProp.GetValue(childValue);
+                try
+                {
+                    var childIdProp = ObjectHelper.GetIdProp(childValue.GetType());
+                    var childId = childIdProp.GetValue(childValue);
 
-					if (childId == null)
-						continue; // Can't determine ID, skip edge removal
+                    if (childId == null)
+                        continue; // Can't determine ID, skip edge removal
 
-					var edge = ObjectHelper.GetPropertyEdge(prop);
-					var edgeLabel = edge?.Label ?? prop.Name;
-					var rootLabel = ObjectHelper.GetObjectLabel(thingType);
-					var childLabel = ObjectHelper.GetObjectLabel(childValue.GetType());
+                    var edge = ObjectHelper.GetPropertyEdge(prop);
+                    var edgeLabel = edge?.Label ?? prop.Name;
+                    var rootLabel = ObjectHelper.GetObjectLabel(thingType);
+                    var childLabel = ObjectHelper.GetObjectLabel(childValue.GetType());
 
-					// Build and execute Cypher to remove stale edges
-					var cypher =
+                    // Build and execute Cypher to remove stale edges
+                    var cypher =
 $@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
 WHERE NOT target.{childIdProp.Name} = $childId
 DELETE rel;";
@@ -800,15 +958,15 @@ DELETE rel;";
                         { "childId", childId }
                     };
                     Statement.Preloads.Add(cypher, parameters);
-				}
-				catch
-				{
-					// If we can't get ID property or something fails, skip this property
-					continue;
-				}
-			}
-		}
+                }
+                catch
+                {
+                    // If we can't get ID property or something fails, skip this property
+                    continue;
+                }
+            }
+        }
 
 
-	}
+    }
 }

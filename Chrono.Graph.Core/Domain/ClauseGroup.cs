@@ -1,6 +1,6 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using System.Linq.Expressions;
+using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Utilities;
-using System.Linq.Expressions;
 
 namespace Chrono.Graph.Core.Domain
 {
@@ -24,7 +24,12 @@ namespace Chrono.Graph.Core.Domain
         }
         public IQueryClauseGroup Or<T, TT>(Expression<Func<T, TT>> operand, Clause clause)
         {
-            return new ClauseGroup();
+            var subclause = new ClauseGroup();
+            // Mark as group expression for OR chains; Neo4jFactory will format as parentheses
+            clause.IsGroupOrExpression = true;
+            Clauses.Add(ObjectHelper.GetPropertyLabel(typeof(T), operand.GetExpressionPropertyName()), clause);
+            SubClauses = SubClauses.Append(subclause);
+            return subclause;
         }
         public IQueryClauseGroup OrGroup(Action<IQueryFactory> builder)
         {
