@@ -7,6 +7,14 @@
         public const string EqualsOperator = ":";
         public const string NotEqualsOperator = "<>";
         public const string InOperator = "IN";
+        public const string NotInOperator = "NOT IN";
+        public const string GreaterThanOperator = ">";
+        public const string GreaterThanOrEqualOperator = ">=";
+        public const string LessThanOperator = "<";
+        public const string LessThanOrEqualOperator = "<=";
+        public const string ContainsOperator = "CONTAINS";
+        public const string ExistsFunction = "EXISTS";
+        public const string NotOperator = "NOT";
         public const string OptionalOption = "OPTIONAL";
         public const string MatchCommand = "MATCH";
         public const string OptionalMatchCommand = "OPTIONAL MATCH";
