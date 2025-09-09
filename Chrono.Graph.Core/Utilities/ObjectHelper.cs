@@ -1,9 +1,9 @@
-﻿using Chrono.Graph.Core.Constant;
-using Chrono.Graph.Core.Domain;
-using Chrono.Graph.Core.Notations;
-using System.Collections;
+﻿using System.Collections;
 using System.Reflection;
 using System.Text.Json;
+using Chrono.Graph.Core.Constant;
+using Chrono.Graph.Core.Domain;
+using Chrono.Graph.Core.Notations;
 
 namespace Chrono.Graph.Core.Utilities
 {
@@ -13,8 +13,8 @@ namespace Chrono.Graph.Core.Utilities
         public static string GetEdgeLabel(PropertyInfo t)
         {
             var edgePropLabel = GetLabel<GraphEdgeAttribute>(t, a => !string.IsNullOrEmpty(a?.Definition?.Label ?? "") ? a?.Definition?.Label ?? "" : "");
-            return !string.IsNullOrEmpty(edgePropLabel) 
-                ? edgePropLabel 
+            return !string.IsNullOrEmpty(edgePropLabel)
+                ? edgePropLabel
                 : GetLabel<GraphEdgeAttribute>(t.PropertyType, a => !string.IsNullOrEmpty(a?.Definition?.Label ?? t.Name) ? a?.Definition?.Label ?? t.Name : t.Name);
         }
         public static string GetPropertyLabel(Type t, string propName)
@@ -102,7 +102,7 @@ namespace Chrono.Graph.Core.Utilities
                  ? dic.KeyType?.IsEnum ?? false
                     ? GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(keyString)[0], edgeAttribute => GenerateDictionaryPropertyLabel(edgeAttribute, prop, key))
                     : throw new NotImplementedException($"Key type [{dic.KeyType?.Name}] cannot be used for labelling.  Only enum keys are supported for [GraphKeyLabelling] Dictionaries")
-                :  GenerateDictionaryPropertyLabel(null, prop, null);
+                : GenerateDictionaryPropertyLabel(null, prop, null);
 
             var attr = prop.GetCustomAttribute<GraphEdgeAttribute>();
             return new GraphEdgeDetails
@@ -127,11 +127,11 @@ namespace Chrono.Graph.Core.Utilities
             => dic.KeyType?.IsEnum ?? false
                 ? Enum.GetValues(dic.KeyType).Cast<object?>()
                     .Select(key => GetLabel<GraphEdgeAttribute>(dic.KeyType.GetMember(key?.ToString() ?? "")[0], a => GenerateDictionaryPropertyLabel(a, prop, key))).ToList()
-                : dic.KeyType == null 
-                    ? [] 
+                : dic.KeyType == null
+                    ? []
                     : [GetObjectLabel(dic.KeyType)];
 
-        private static string GenerateDictionaryPropertyLabel(GraphEdgeAttribute? edgeAttribute, PropertyInfo prop, object? key) 
+        private static string GenerateDictionaryPropertyLabel(GraphEdgeAttribute? edgeAttribute, PropertyInfo prop, object? key)
             => !string.IsNullOrEmpty(edgeAttribute?.Definition?.Label)
                 ? edgeAttribute.Definition.Label
                 : (!string.IsNullOrEmpty(key?.ToString() ?? "")
@@ -163,15 +163,15 @@ namespace Chrono.Graph.Core.Utilities
                 ?? prop.GetType()?.GetCustomAttribute<GraphEdgeAttribute>()?.Definition;
 
             var result = new GraphEdgeDetails
-                {
-                    Label = !string.IsNullOrEmpty(label) 
-                        ? label 
-                        : !string.IsNullOrEmpty(attr?.Label) 
+            {
+                Label = !string.IsNullOrEmpty(label)
+                        ? label
+                        : !string.IsNullOrEmpty(attr?.Label)
                             ? attr.Label
                             : GetEdgeLabel(prop),
-                    Direction = attr?.Direction ?? GraphEdgeDirection.Out,
-                    Optional = attr?.Optional ?? optional
-                };
+                Direction = attr?.Direction ?? GraphEdgeDirection.Out,
+                Optional = attr?.Optional ?? optional
+            };
             return result;
         }
         public static bool IsSerializable(PropertyInfo propertyInfo)
@@ -301,14 +301,14 @@ namespace Chrono.Graph.Core.Utilities
         {
             var primitivity = GetPrimitivity(thing);
             return primitivity.HasFlag(GraphPrimitivity.Object)
-                ? JsonSerializer.Serialize(JsonSerializer.Serialize(thing), new JsonSerializerOptions { })
-                : JsonSerializer.Serialize(thing);
+                ? JsonSerializer.Serialize(JsonSerializer.Serialize(thing, JsonDefaults.Options), JsonDefaults.Options)
+                : JsonSerializer.Serialize(thing, JsonDefaults.Options);
         }
         public static bool TryMakeDictionary(IList<object> records, out Dictionary<string, object> dict)
         {
             var attempt = records.FirstOrDefault();
             dict = attempt != null && (attempt is IDictionary<string, object> d)
-                ? d.ToDictionary(dd => dd.Key, dd => dd.Value) 
+                ? d.ToDictionary(dd => dd.Key, dd => dd.Value)
                 : new Dictionary<string, object>();
             return attempt != null;
         }

@@ -1,14 +1,14 @@
-﻿using Castle.DynamicProxy;
-using Chrono.Graph.Core.Constant;
-using Chrono.Graph.Core.Domain;
-using NanoidDotNet;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Castle.DynamicProxy;
+using Chrono.Graph.Core.Constant;
+using Chrono.Graph.Core.Domain;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Core.Utilities
 {
@@ -30,18 +30,11 @@ namespace Chrono.Graph.Core.Utilities
                     if (generic.IsEnum)
                     {
                         var enumArrayType = typeof(IEnumerable<>).MakeGenericType(generic);
-                        var options = new JsonSerializerOptions();
-                        options.Converters.Add(new JsonStringEnumConverter());
-                        options.ReferenceHandler = ReferenceHandler.IgnoreCycles;
-
-                        return JsonSerializer.Serialize(value, enumArrayType, options);
+                        return JsonSerializer.Serialize(value, enumArrayType, JsonDefaults.Options);
                     }
                 }
             }
-            if (primitivity.HasFlag(GraphPrimitivity.Object) || primitivity.HasFlag(GraphPrimitivity.Array) || primitivity.HasFlag(GraphPrimitivity.Dictionary)) return JsonSerializer.Serialize(value, new JsonSerializerOptions
-            {
-                ReferenceHandler = ReferenceHandler.IgnoreCycles,
-            });
+            if (primitivity.HasFlag(GraphPrimitivity.Object) || primitivity.HasFlag(GraphPrimitivity.Array) || primitivity.HasFlag(GraphPrimitivity.Dictionary)) return JsonSerializer.Serialize(value, JsonDefaults.Options);
 
             return value; // Return value as is for types Neo4j already supports
         }
@@ -56,27 +49,27 @@ namespace Chrono.Graph.Core.Utilities
             new CultureInfo("en-US", false).TextInfo.ToTitleCase(value);
         public static string StandardizeVariableName(string value) => ToCamelCase(StandardizeGraphString(value));
         public static string StandardizePropertyName(string value) => StandardizeNodeLabel(value);
-        public static string StandardizeNodeLabel (string value) 
+        public static string StandardizeNodeLabel(string value)
             => !Regex.IsMatch(CypherConstants.InvalidCharactersPattern, value)
             ? value
             : new CultureInfo("en-US", false).TextInfo
                 .ToTitleCase(
                     Regex.Replace(
-                        value.Length > 2048 ? value[..2048] : value, 
+                        value.Length > 2048 ? value[..2048] : value,
                         CypherConstants.InvalidCharactersPattern, " ")
                     .ToLower())
                 .Replace(" ", "");
 
-        public static string StandardizeEdgeLabel (string value) 
+        public static string StandardizeEdgeLabel(string value)
             => Regex.Replace(
-                value.Length > 2048 ? value[..2048] : value, 
+                value.Length > 2048 ? value[..2048] : value,
                 CypherConstants.InvalidCharactersPattern, "_")
             .ToUpper();
         public static string Id(string? existing = null) => string.IsNullOrEmpty(existing) || existing.Length != CypherConstants.SafeIdLength ? Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength) : existing;
         public static string CypherId(string? existing = null) => Id(existing).Replace("-", "d").Replace("_", "u");
         public static void Recurse(this Dictionary<string, CypherVar> dic, Action<CypherVar> doWhatWithTheChildren)
         {
-            foreach(var record in dic)
+            foreach (var record in dic)
             {
                 doWhatWithTheChildren(record.Value);
                 if (record.Value.Connections != null && record.Value.Connections.Count > 0)
@@ -88,21 +81,21 @@ namespace Chrono.Graph.Core.Utilities
         {
             if (expression.Body is MemberExpression memberExpression)
             {
-                return (PropertyInfo) memberExpression.Member;
+                return (PropertyInfo)memberExpression.Member;
             }
 
             if (expression.Body is UnaryExpression unaryExpression)
             {
-                return (PropertyInfo) ((MemberExpression)unaryExpression.Operand).Member;
+                return (PropertyInfo)((MemberExpression)unaryExpression.Operand).Member;
             }
 
             throw new ArgumentException("Invalid expression");
         }
         public static void Merge<T, TT>(this Dictionary<T, TT> dic1, IReadOnlyDictionary<T, TT> dic2) where T : notnull
         {
-            foreach(var injectable in dic2)
+            foreach (var injectable in dic2)
             {
-                if(!dic1.TryAdd(injectable.Key, injectable.Value))
+                if (!dic1.TryAdd(injectable.Key, injectable.Value))
                 {
                     var old = dic1[injectable.Key];
                 }
