@@ -412,6 +412,12 @@ namespace Chrono.Graph.Adapter.Neo4j
                     .Select(s => s?.EdgeCypher)
                     .Aggregate((a, b) => $"{a}\n{b}") ?? "";
 
+                Statement.Preloads.Merge(subStatements
+                    .SelectMany(s => s != null ? s.Preloads
+                        .Select(p => p) : [])
+                    .GroupBy(p => p.Key)
+                    .ToDictionary(p => p.Key, p => p.Last().Value));
+
             }
 
             var edges = string.Empty;
@@ -734,6 +740,15 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             return new ClauseGroup();
         }
+        /// <summary>
+        /// Very important for updating objects having different property objects from the initial save.  Remove the old object connection before adding a new node.  
+        /// If not done a scalar property have connections to more than one node creating an incongruency between the database and the application data model
+        /// Does not process arrays, dictionaries, nulls, graph ignored and graph serialized attributed properties.
+        /// Does process any other nonprimitive object that has a discernable Id
+        /// If that Id is different from the current, the connection is broken
+        /// </summary>
+        /// <typeparam name="T">Class to inspect</typeparam>
+        /// <param name="thing">Remove old connections on this object</param>
 		public void RemoveStaleConnections<T>(T thing) where T : class
 		{
 			if (thing == null)
@@ -746,14 +761,14 @@ namespace Chrono.Graph.Adapter.Neo4j
 			if (rootId == null)
 				return; // Can't remove stale connections without root ID
 
-			var properties = thingType.GetProperties()
-				.Where(prop =>
-					prop.GetAttribute<GraphIgnoreAttribute>() == null
-					&& prop.GetValue(thing) != null // Don't process null properties
-					&& ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object)
-					&& !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array) // Skip arrays
-					&& !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
-					&& !ObjectHelper.IsSerializable(prop));
+            var properties = thingType.GetProperties()
+                .Where(prop =>
+                    prop.GetAttribute<GraphIgnoreAttribute>() == null                                       // skip ignored props
+                    && prop.GetValue(thing) != null                                                         // skip null properties
+                    && !ObjectHelper.IsSerializable(prop)                                                   // skip objects marked to be serialized
+                    && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array)      // Skip arrays
+                    && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
+                    && ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object));
 
 			foreach (var prop in properties)
 			{

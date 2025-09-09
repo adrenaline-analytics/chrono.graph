@@ -64,7 +64,7 @@ namespace Chrono.Graph.Test.Integration
             result.Headquarters.Title = newName;
 
             await _db.Patch(result, j => j.Join<EntityHub, IList<FacilityUnit>>(o => o.Locations)
-                    .Join<EntityHub, FacilityUnit>(o => o.Headquarters));
+					.Join<EntityHub, FacilityUnit>(o => o.Headquarters));
 
             var newresult = await _db.GetScalar<EntityHub>(
                 q => q.Where<EntityHub, string>(o => o.Id, Is.Equal(id)),

@@ -57,6 +57,7 @@ namespace Chrono.Graph.Core.Application
         void OnMatchSet<T>(T thing, bool idempotent) where T : notnull;
         void Match(IEnumerable<CypherVar> cypherVars);
         void Match(CypherVar cypherVar);
+		void RemoveStaleConnections<T>(T thing) where T : class;
     }
 
 }
