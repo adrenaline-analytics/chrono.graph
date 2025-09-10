@@ -564,7 +564,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                             // Convert string to enum
                             if (generic.IsEnum)
                             {
-                                var convertedItem = Enum.Parse(generic, item);
+                                var convertedItem = Enum.Parse(generic, item, true);
                                 addMethod.Invoke(hashSet, new[] { convertedItem });
                             }
                             else
