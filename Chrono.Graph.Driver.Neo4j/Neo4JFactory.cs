@@ -25,6 +25,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = [];
         public Dictionary<string, HashSet<GraphEdgeBasic>> InboundEdges { get; set; } = [];
         public Dictionary<int, IQueryFactory> GlobalObjectRegistry { get; } = [];
+        public HashSet<string> GlobalEdgeRegistry { get; } = [];
 
         private Neo4jFactory(Statement statement, int hash, Dictionary<int, IQueryFactory> objectRegistry)
         {
@@ -38,6 +39,14 @@ namespace Chrono.Graph.Adapter.Neo4j
                 .Substring(0, 8)
                 .Replace("-", "d")
                 .Replace("_", "u");
+
+            // Initialize a shared edge registry across all factories in this traversal
+            // by borrowing the first existing factory's registry if available
+            var existingFactory = GlobalObjectRegistry.Values.OfType<Neo4jFactory>().FirstOrDefault();
+            if (existingFactory != null && !ReferenceEquals(existingFactory, this))
+            {
+                GlobalEdgeRegistry = existingFactory.GlobalEdgeRegistry;
+            }
         }
 
         private static IQueryFactory ConnectChildWithCreate<T>(T thing, PropertyInfo? prop, Dictionary<int, IQueryFactory> registry)
@@ -478,8 +487,17 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (string.IsNullOrEmpty(edge.Label))
                 throw new ArgumentException("An edge label is required to make a graph edge connection");
 
-            if (!edges.TryAdd(hash, [edge]) && edges.TryGetValue(hash, out var existingEdges))
-                existingEdges.Add(edge);
+            // Build a stable edge key to dedupe relationship emissions across traversal
+            var fromVar = edge.Direction == GraphEdgeDirection.In ? factoryB.RootVar.Var : factoryA.RootVar.Var;
+            var toVar = edge.Direction == GraphEdgeDirection.In ? factoryA.RootVar.Var : factoryB.RootVar.Var;
+            var edgeKey = $"{fromVar}|{Utils.StandardizeEdgeLabel(edge.Label)}|{toVar}";
+
+            if (!GlobalEdgeRegistry.Contains(edgeKey))
+            {
+                GlobalEdgeRegistry.Add(edgeKey);
+                if (!edges.TryAdd(hash, [edge]) && edges.TryGetValue(hash, out var existingEdges))
+                    existingEdges.Add(edge);
+            }
         }
 
 
