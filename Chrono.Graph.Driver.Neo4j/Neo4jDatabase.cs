@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Castle.Core.Internal;
 using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
@@ -182,7 +182,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
 
         private void PostChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory)
-		{
+        {
             var childFactory = parentFactory;
             WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) =>
             {
@@ -208,7 +208,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             });
         }
         private IQueryFactory PostChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge)
-		{
+        {
 
             if (parent == null)
                 return childFactory;
@@ -325,8 +325,23 @@ namespace Chrono.Graph.Adapter.Neo4j
             var childFactory = parentFactory;
             WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) =>
             {
-                if (child == null || parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode()))
+                if (child == null)
                     return;
+
+                var alreadySeen = parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode());
+                if (alreadySeen)
+                {
+                    var parentNeo = (Neo4jFactory)parentFactory;
+                    if (parentNeo.GlobalObjectRegistry.TryGetValue(child.GetHashCode(), out var existingChildFactory))
+                    {
+                        var edgeDetails = edge != null
+                            ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties, Direction = edge.Direction }
+                            : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? child.GetType().Name);
+
+                        parentNeo.ConnectEdges(parentNeo, existingChildFactory, _ => edgeDetails);
+                    }
+                    return;
+                }
 
                 transaction.ContinueWith<T>(factory =>
                 {
@@ -336,8 +351,23 @@ namespace Chrono.Graph.Adapter.Neo4j
             },
             (dicInfo, key, child, prop, currentDepth, edge) =>
             {
-                if (child == null || parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode()))
+                if (child == null)
                     return;
+
+                var alreadySeen = parentFactory.GlobalObjectRegistry.ContainsKey(child.GetHashCode());
+                if (alreadySeen)
+                {
+                    var parentNeo = (Neo4jFactory)parentFactory;
+                    if (parentNeo.GlobalObjectRegistry.TryGetValue(child.GetHashCode(), out var existingChildFactory))
+                    {
+                        var edgeDetails = edge != null
+                            ? new GraphEdgeDetails { Label = edge.Label, Properties = edge.Properties, Direction = edge.Direction }
+                            : ObjectHelper.GetPropertyEdge(prop, label: prop?.Name ?? child.GetType().Name);
+
+                        parentNeo.ConnectEdges(parentNeo, existingChildFactory, _ => edgeDetails);
+                    }
+                    return;
+                }
 
                 transaction.ContinueWith<T>(factory =>
                 {
@@ -347,7 +377,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             });
         }
         private IQueryFactory PatchChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge, bool removeStaleConnections = false)
-		{
+        {
 
             if (parent == null)
                 return childFactory;
@@ -365,8 +395,8 @@ namespace Chrono.Graph.Adapter.Neo4j
                     t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
                     subFactory =>
                     {
-                        if(removeStaleConnections)
-							subFactory.RemoveStaleConnections(child);
+                        if (removeStaleConnections)
+                            subFactory.RemoveStaleConnections(child);
 
                         subFactory.OnCreateSet(child);
                         subFactory.OnMatchSet(child, false);
@@ -539,20 +569,20 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             var results = new List<IDictionary<string, object?>>();
             var (queryResults, summary) = await new CypherTransaction(_driver, _queryConfig).Execute(cypher, parameters);
-			var records = queryResults.ToList();
+            var records = queryResults.ToList();
 
-			foreach (var record in records)
-			{
-				var dict = new Dictionary<string, object?>();
-				foreach (var key in record.Keys)
-				{
-					dict[key] = record[key];
-				}
-				results.Add(dict);
-			}
+            foreach (var record in records)
+            {
+                var dict = new Dictionary<string, object?>();
+                foreach (var key in record.Keys)
+                {
+                    dict[key] = record[key];
+                }
+                results.Add(dict);
+            }
 
-			return results;
+            return results;
 
         }
-	}
+    }
 }
