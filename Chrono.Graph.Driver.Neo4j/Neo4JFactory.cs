@@ -933,8 +933,8 @@ namespace Chrono.Graph.Adapter.Neo4j
         /// <summary>
         /// Very important for updating objects having different property objects from the initial save.  Remove the old object connection before adding a new node.  
         /// If not done a scalar property have connections to more than one node creating an incongruency between the database and the application data model
-        /// Does not process arrays, dictionaries, nulls, graph ignored and graph serialized attributed properties.
-        /// Does process any other nonprimitive object that has a discernable Id
+        /// Does not process dictionaries, nulls, graph ignored and graph serialized attributed properties.
+        /// Processes scalar object references and arrays of objects that have discernable Ids.
         /// If that Id is different from the current, the connection is broken
         /// </summary>
         /// <typeparam name="T">Class to inspect</typeparam>
@@ -956,45 +956,105 @@ namespace Chrono.Graph.Adapter.Neo4j
                     prop.GetAttribute<GraphIgnoreAttribute>() == null                                       // skip ignored props
                     && prop.GetValue(thing) != null                                                         // skip null properties
                     && !ObjectHelper.IsSerializable(prop)                                                   // skip objects marked to be serialized
-                    && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array)      // Skip arrays
                     && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
-                    && ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object));
+                    && (ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object)
+                        || ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array)) // include scalars and arrays of objects
+                );
 
             foreach (var prop in properties)
             {
-                var childValue = prop.GetValue(thing);
-                if (childValue == null)
+                var value = prop.GetValue(thing);
+                if (value == null)
                     continue;
 
-                try
+                var prim = ObjectHelper.GetPrimitivity(prop.PropertyType);
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var rootLabel = ObjectHelper.GetObjectLabel(thingType);
+
+                // Handle arrays/lists of objects
+                if (prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
                 {
-                    var childIdProp = ObjectHelper.GetIdProp(childValue.GetType());
-                    var childId = childIdProp.GetValue(childValue);
+                    var ids = new List<object>();
+                    Type? elementType = null;
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null) continue;
+                        elementType ??= item.GetType();
+                        try
+                        {
+                            var idProp = ObjectHelper.GetIdProp(item.GetType());
+                            var idVal = idProp.GetValue(item);
+                            if (idVal != null)
+                                ids.Add(idVal);
+                        }
+                        catch { /* skip items without ids */ }
+                    }
 
-                    if (childId == null)
-                        continue; // Can't determine ID, skip edge removal
+                    // If we cannot determine an element type, skip
+                    if (elementType == null)
+                        continue;
 
-                    var edge = ObjectHelper.GetPropertyEdge(prop);
-                    var edgeLabel = edge?.Label ?? prop.Name;
-                    var rootLabel = ObjectHelper.GetObjectLabel(thingType);
-                    var childLabel = ObjectHelper.GetObjectLabel(childValue.GetType());
+                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
 
-                    // Build and execute Cypher to remove stale edges
-                    var cypher =
+                    if (ids.Count == 0)
+                    {
+                        // Remove all existing edges of this type
+                        var cypherAll =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+DELETE rel;";
+                        var parametersAll = new Dictionary<string, object?> {
+                            { "rootId", rootId }
+                        };
+                        Statement.Preloads.Add(cypherAll, parametersAll);
+                    }
+                    else
+                    {
+                        // Remove any edges whose target id is not in the current collection
+                        // Determine id property name from elementType
+                        var idProp = ObjectHelper.GetIdProp(elementType);
+                        var idName = idProp.Name;
+                        var cypherIn =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+WHERE NOT target.{idName} IN $childIds
+DELETE rel;";
+                        var parametersIn = new Dictionary<string, object?> {
+                            { "rootId", rootId },
+                            { "childIds", ids }
+                        };
+                        Statement.Preloads.Add(cypherIn, parametersIn);
+                    }
+                }
+                else if (prim.HasFlag(GraphPrimitivity.Object))
+                {
+                    // Handle scalar object reference
+                    try
+                    {
+                        var childIdProp = ObjectHelper.GetIdProp(value.GetType());
+                        var childId = childIdProp.GetValue(value);
+
+                        if (childId == null)
+                            continue; // Can't determine ID, skip edge removal
+
+                        var childLabel = ObjectHelper.GetObjectLabel(value.GetType());
+
+                        // Build and execute Cypher to remove stale edges
+                        var cypher =
 $@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
 WHERE NOT target.{childIdProp.Name} = $childId
 DELETE rel;";
 
-                    var parameters = new Dictionary<string, object?> {
-                        { "rootId", rootId },
-                        { "childId", childId }
-                    };
-                    Statement.Preloads.Add(cypher, parameters);
-                }
-                catch
-                {
-                    // If we can't get ID property or something fails, skip this property
-                    continue;
+                        var parameters = new Dictionary<string, object?> {
+                            { "rootId", rootId },
+                            { "childId", childId }
+                        };
+                        Statement.Preloads.Add(cypher, parameters);
+                    }
+                    catch
+                    {
+                        // If we can't get ID property or something fails, skip this property
+                        continue;
+                    }
                 }
             }
         }
