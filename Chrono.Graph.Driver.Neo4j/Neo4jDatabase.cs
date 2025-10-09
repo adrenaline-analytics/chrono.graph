@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using Castle.Core.Internal;
 using Chrono.Graph.Core.Application;
@@ -80,14 +81,60 @@ namespace Chrono.Graph.Adapter.Neo4j
                 });
 
 
-        public Task RemoveEdge<T, TT>(T from, string edge, TT what) where T : class
+        public Task RemoveEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class
         {
-            throw new NotImplementedException();
+            // Build a query to remove the edge defined by the operand's property
+            // Usage: db.RemoveEdge<Parent, Child>(p => p.Child)
+            var member = (operand.Body as MemberExpression) ?? throw new ArgumentException("Operand must be a property expression");
+            var prop = (member.Member as PropertyInfo) ?? throw new ArgumentException("Operand must target a property");
+
+            return new CypherTransaction(_driver, _queryConfig).Execute(() =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMatch<T>(q => { });
+                var rootLabel = ObjectHelper.GetObjectLabel(typeof(T));
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var childLabel = ObjectHelper.GetObjectLabel((prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : prop.PropertyType));
+
+                var idProp = ObjectHelper.GetIdProp(typeof(T));
+                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
+                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
+
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}})-[rel:{edgeLabel}]->(:{childLabel}) DELETE rel";
+                factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
+                return factory;
+            });
 
         }
-        public Task AddEdge<T, TT>(T from, string verb, TT to) where T : class
+        public Task AddEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class
         {
-            throw new NotImplementedException();
+            // Build a query to add the edge defined by the operand's property
+            // Usage: db.AddEdge<Parent, Child>(p => p.Child) – assumes both nodes exist and are identified by Id
+            var member = (operand.Body as MemberExpression) ?? throw new ArgumentException("Operand must be a property expression");
+            var prop = (member.Member as PropertyInfo) ?? throw new ArgumentException("Operand must target a property");
+
+            return new CypherTransaction(_driver, _queryConfig).Execute(() =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMatch<T>(q => { });
+                var rootLabel = ObjectHelper.GetObjectLabel(typeof(T));
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var childThing = prop.GetValue(thing) ?? throw new ArgumentException("The child object must be set on the parent object to create the edge");
+
+                var childType = (prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : prop.PropertyType);
+                var childLabel = ObjectHelper.GetObjectLabel(childType);
+
+                var idProp = ObjectHelper.GetIdProp(typeof(T));
+                var childIdProp = ObjectHelper.GetIdProp(childType);
+
+                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
+                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
+                factory.Statement.InVars[makeKey(childIdProp.Name)] = new CypherVar { Var = makeKey(childIdProp.Name), Object = childIdProp.GetValue(childThing) };
+
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(childIdProp.Name)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
+                factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
+                return factory;
+            });
         }
 
 

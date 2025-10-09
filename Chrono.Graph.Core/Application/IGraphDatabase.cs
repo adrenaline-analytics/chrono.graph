@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Chrono.Graph.Core.Application
 {
@@ -36,7 +37,6 @@ namespace Chrono.Graph.Core.Application
         /// <param name="clauser"></param>
         /// <returns></returns>
         Task<IEnumerable<T>> Get<T>(Action<IQueryClause> clauser) where T : class;
-        Task AddEdge<T, TT>(T from, string verb, TT to) where T : class;
         /// <summary>
         /// Create a brand new object
         /// </summary>
@@ -178,6 +178,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="parameters">Optional parameters for the query</param>
         /// <returns>The query result as a list of dictionaries where each dictionary represents a record</returns>
         Task<IList<IDictionary<string, object?>>> Execute(string cypher, Dictionary<string, object?>? parameters = null);
-        Task RemoveEdge<T, TT>(T from, string edge, TT what) where T : class;
+        Task AddEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class;
+        Task RemoveEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class;
     }
 }
