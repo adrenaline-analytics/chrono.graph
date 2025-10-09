@@ -277,11 +277,21 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var predicates = clauseGroup.Clauses
                     .Select(c => BuildPredicate(varName, c))
                     .ToList();
+
                 var sub = RecurseSubClausesForWhere(clauseGroup.SubClauses, varName);
                 if (!string.IsNullOrEmpty(sub))
                     predicates.Add(sub);
+
                 if (predicates.Count > 0)
-                    groups.Add(predicates.Aggregate((a, b) => $"{a} AND {b}"));
+                {
+                    var hasOr = clauseGroup.Clauses.Values.Any(c => c.IsGroupOrExpression);
+                    var joiner = hasOr ? " OR " : " AND ";
+                    var combined = predicates.Aggregate((a, b) => $"{a}{joiner}{b}");
+                    // Wrap groups to preserve intended precedence when mixed with outer ANDs
+                    if (predicates.Count > 1)
+                        combined = $"({combined})";
+                    groups.Add(combined);
+                }
             }
             return groups.Count > 0 ? groups.Aggregate((a, b) => $"{a} AND {b}") : string.Empty;
         }
@@ -902,12 +912,16 @@ namespace Chrono.Graph.Adapter.Neo4j
         public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));
         public IQueryClauseGroup Where(string propertyName, Clause clause, Type type)
         {
-            if (!Clauses.TryAdd(ObjectHelper.GetPropertyLabel(type, propertyName), clause)
-                && Clauses.TryGetValue(ObjectHelper.GetPropertyLabel(type, propertyName), out var existingClause)
+            // Start a new clause group for this Where, so subsequent Or/And calls
+            // can combine with the initial predicate using proper precedence
+            var subclause = new ClauseGroup();
+            var label = ObjectHelper.GetPropertyLabel(type, propertyName);
+
+            if (!subclause.Clauses.TryAdd(label, clause)
+                && subclause.Clauses.TryGetValue(label, out var existingClause)
                 && !existingClause.Equals(clause))
                 throw new ArgumentException("A data collision has occurred when attempting to build a clause");
 
-            var subclause = new ClauseGroup();
             SubClauses = SubClauses.Append(subclause);
             return subclause;
         }
