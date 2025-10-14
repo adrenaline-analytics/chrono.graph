@@ -973,59 +973,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var rootLabel = ObjectHelper.GetObjectLabel(thingType);
 
                 // Handle arrays/lists of objects
-                if (prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
-                {
-                    var ids = new List<object>();
-                    Type? elementType = null;
-                    foreach (var item in enumerable)
-                    {
-                        if (item == null) continue;
-                        elementType ??= item.GetType();
-                        try
-                        {
-                            var idProp = ObjectHelper.GetIdProp(item.GetType());
-                            var idVal = idProp.GetValue(item);
-                            if (idVal != null)
-                                ids.Add(idVal);
-                        }
-                        catch { /* skip items without ids */ }
-                    }
-
-                    // If we cannot determine an element type, skip
-                    if (elementType == null)
-                        continue;
-
-                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
-
-                    if (ids.Count == 0)
-                    {
-                        // Remove all existing edges of this type
-                        var cypherAll =
-$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
-DELETE rel;";
-                        var parametersAll = new Dictionary<string, object?> {
-                            { "rootId", rootId }
-                        };
-                        Statement.Preloads.Add(cypherAll, parametersAll);
-                    }
-                    else
-                    {
-                        // Remove any edges whose target id is not in the current collection
-                        // Determine id property name from elementType
-                        var idProp = ObjectHelper.GetIdProp(elementType);
-                        var idName = idProp.Name;
-                        var cypherIn =
-$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
-WHERE NOT target.{idName} IN $childIds
-DELETE rel;";
-                        var parametersIn = new Dictionary<string, object?> {
-                            { "rootId", rootId },
-                            { "childIds", ids }
-                        };
-                        Statement.Preloads.Add(cypherIn, parametersIn);
-                    }
-                }
-                else if (prim.HasFlag(GraphPrimitivity.Object))
+                if (prim.HasFlag(GraphPrimitivity.Object) && !prim.HasFlag(GraphPrimitivity.Array))
                 {
                     // Handle scalar object reference
                     try
@@ -1056,6 +1004,60 @@ DELETE rel;";
                         continue;
                     }
                 }
+                //mixed bag with arrays, sometimes you dont always pull the whole list and you want to save just a couple
+                //sometimes you want it to intelligently remove things that arent in a list anymore
+//                else if (prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
+//                {
+//                    var ids = new List<object>();
+//                    Type? elementType = null;
+//                    foreach (var item in enumerable)
+//                    {
+//                        if (item == null) continue;
+//                        elementType ??= item.GetType();
+//                        try
+//                        {
+//                            var idProp = ObjectHelper.GetIdProp(item.GetType());
+//                            var idVal = idProp.GetValue(item);
+//                            if (idVal != null)
+//                                ids.Add(idVal);
+//                        }
+//                        catch { /* skip items without ids */ }
+//                    }
+
+//                    // If we cannot determine an element type, skip
+//                    if (elementType == null)
+//                        continue;
+
+//                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
+
+//                    if (ids.Count == 0)
+//                    {
+//                        // Remove all existing edges of this type
+//                        var cypherAll =
+//$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+//DELETE rel;";
+//                        var parametersAll = new Dictionary<string, object?> {
+//                            { "rootId", rootId }
+//                        };
+//                        Statement.Preloads.Add(cypherAll, parametersAll);
+//                    }
+//                    else
+//                    {
+//                        // Remove any edges whose target id is not in the current collection
+//                        // Determine id property name from elementType
+//                        var idProp = ObjectHelper.GetIdProp(elementType);
+//                        var idName = idProp.Name;
+//                        var cypherIn =
+//$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+//WHERE NOT target.{idName} IN $childIds
+//DELETE rel;";
+//                        var parametersIn = new Dictionary<string, object?> {
+//                            { "rootId", rootId },
+//                            { "childIds", ids }
+//                        };
+//                        Statement.Preloads.Add(cypherIn, parametersIn);
+//                    }
+//                }
             }
         }
 
