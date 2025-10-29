@@ -236,6 +236,11 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
         private object StandardizeOperandForCypher(string op, object? operand)
         {
+            if (op == CypherConstants.NotOperator && operand is Clause inner)
+            {
+                // Unwrap NOT(...) so parameter binding uses the inner clause's operand
+                return StandardizeOperandForCypher(inner.Operator, inner.Operand);
+            }
             if (op == CypherConstants.InOperator)
             {
                 if (operand == null)
@@ -258,13 +263,19 @@ namespace Chrono.Graph.Adapter.Neo4j
             var key = clause.Key;
             var op = clause.Value.Operator;
             if (op == CypherConstants.ExistsFunction)
-                return $"EXISTS({varName}.{key})";
+                return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
+            if (op == CypherConstants.IsNotNullOperator)
+                return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
+            if (op == CypherConstants.IsNullOperator)
+                return $"{varName}.{key} {CypherConstants.IsNullOperator}";
             if (op == CypherConstants.NotOperator && clause.Value.Operand is Clause inner)
             {
-                var innerOp = inner.Operator == CypherConstants.EqualsOperator ? "=" : inner.Operator;
-                var innerKey = key;
-                var param = $"${innerKey}{Hash}";
-                return $"NOT ({varName}.{innerKey} {innerOp} {param})";
+                if (inner.Operator == CypherConstants.ExistsFunction)
+                    return $"{varName}.{key} {CypherConstants.IsNullOperator}";
+
+                var map = MapOperatorForWhere(inner.Operator);
+                var param = $"${key}{Hash}";
+                return $"NOT ({varName}.{key} {map} {param})";
             }
             var mapped = MapOperatorForWhere(op);
             return $"{varName}.{key} {mapped} ${key}{Hash}";
@@ -474,6 +485,57 @@ namespace Chrono.Graph.Adapter.Neo4j
             var leftEdgeArrow = connection.Value.Edge?.Direction == GraphEdgeDirection.Out ? $"->" : "-";
 
             var result = $"{cmd} ({cypherVar.Var}){rightEdgeArrow}[{edgeVar}{edgeLabel}]{leftEdgeArrow}({connectedVar}{connectedLabel})";
+
+            // Append WHERE for child if any clauses were defined via Join(operand, clause)
+            if ((connection.Value.Clauses?.Count ?? 0) > 0 || (connection.Value.SubClauses?.Any(c => (c.Clauses?.Count ?? 0) > 0) ?? false))
+            {
+                var makeKey = new Func<string, string>(s => $"{s}{Hash}");
+
+                foreach (var c in connection.Value.Clauses)
+                {
+                    var key = makeKey(c.Key);
+                    Statement.InVars[key] = new CypherVar
+                    {
+                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Var = key
+                    };
+                    if (c.Value.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(key);
+                }
+
+                if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
+                {
+                    var subVars = RecurseSubClausesForVars(connection.Value.SubClauses);
+                    foreach (var c in subVars)
+                    {
+                        var key = makeKey(c.Key);
+                        Statement.InVars[key] = new CypherVar
+                        {
+                            Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                            Var = key
+                        };
+                        if (c.Value.Operator == CypherConstants.InOperator)
+                            _rawParamKeys.Add(key);
+                    }
+                }
+
+                var predicates = new List<string>();
+                if (connection.Value.Clauses.Count > 0)
+                    predicates.Add(connection.Value.Clauses
+                        .Select(c => BuildPredicate(connectedVar, c))
+                        .Aggregate((a, b) => $"{a} AND {b}"));
+
+                if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
+                {
+                    var subWhere = RecurseSubClausesForWhere(connection.Value.SubClauses, connectedVar);
+                    if (!string.IsNullOrEmpty(subWhere))
+                        predicates.Add(subWhere);
+                }
+
+                if (predicates.Count > 0)
+                    result = $"{result} WHERE {predicates.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a} AND {b}")}";
+            }
+
             return result;
         }
 
@@ -1006,58 +1068,58 @@ DELETE rel;";
                 }
                 //mixed bag with arrays, sometimes you dont always pull the whole list and you want to save just a couple
                 //sometimes you want it to intelligently remove things that arent in a list anymore
-//                else if (prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
-//                {
-//                    var ids = new List<object>();
-//                    Type? elementType = null;
-//                    foreach (var item in enumerable)
-//                    {
-//                        if (item == null) continue;
-//                        elementType ??= item.GetType();
-//                        try
-//                        {
-//                            var idProp = ObjectHelper.GetIdProp(item.GetType());
-//                            var idVal = idProp.GetValue(item);
-//                            if (idVal != null)
-//                                ids.Add(idVal);
-//                        }
-//                        catch { /* skip items without ids */ }
-//                    }
+                //                else if (prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
+                //                {
+                //                    var ids = new List<object>();
+                //                    Type? elementType = null;
+                //                    foreach (var item in enumerable)
+                //                    {
+                //                        if (item == null) continue;
+                //                        elementType ??= item.GetType();
+                //                        try
+                //                        {
+                //                            var idProp = ObjectHelper.GetIdProp(item.GetType());
+                //                            var idVal = idProp.GetValue(item);
+                //                            if (idVal != null)
+                //                                ids.Add(idVal);
+                //                        }
+                //                        catch { /* skip items without ids */ }
+                //                    }
 
-//                    // If we cannot determine an element type, skip
-//                    if (elementType == null)
-//                        continue;
+                //                    // If we cannot determine an element type, skip
+                //                    if (elementType == null)
+                //                        continue;
 
-//                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
+                //                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
 
-//                    if (ids.Count == 0)
-//                    {
-//                        // Remove all existing edges of this type
-//                        var cypherAll =
-//$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
-//DELETE rel;";
-//                        var parametersAll = new Dictionary<string, object?> {
-//                            { "rootId", rootId }
-//                        };
-//                        Statement.Preloads.Add(cypherAll, parametersAll);
-//                    }
-//                    else
-//                    {
-//                        // Remove any edges whose target id is not in the current collection
-//                        // Determine id property name from elementType
-//                        var idProp = ObjectHelper.GetIdProp(elementType);
-//                        var idName = idProp.Name;
-//                        var cypherIn =
-//$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
-//WHERE NOT target.{idName} IN $childIds
-//DELETE rel;";
-//                        var parametersIn = new Dictionary<string, object?> {
-//                            { "rootId", rootId },
-//                            { "childIds", ids }
-//                        };
-//                        Statement.Preloads.Add(cypherIn, parametersIn);
-//                    }
-//                }
+                //                    if (ids.Count == 0)
+                //                    {
+                //                        // Remove all existing edges of this type
+                //                        var cypherAll =
+                //$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+                //DELETE rel;";
+                //                        var parametersAll = new Dictionary<string, object?> {
+                //                            { "rootId", rootId }
+                //                        };
+                //                        Statement.Preloads.Add(cypherAll, parametersAll);
+                //                    }
+                //                    else
+                //                    {
+                //                        // Remove any edges whose target id is not in the current collection
+                //                        // Determine id property name from elementType
+                //                        var idProp = ObjectHelper.GetIdProp(elementType);
+                //                        var idName = idProp.Name;
+                //                        var cypherIn =
+                //$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+                //WHERE NOT target.{idName} IN $childIds
+                //DELETE rel;";
+                //                        var parametersIn = new Dictionary<string, object?> {
+                //                            { "rootId", rootId },
+                //                            { "childIds", ids }
+                //                        };
+                //                        Statement.Preloads.Add(cypherIn, parametersIn);
+                //                    }
+                //                }
             }
         }
 

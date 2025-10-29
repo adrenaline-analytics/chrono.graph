@@ -15,6 +15,8 @@
         public const string ContainsOperator = "CONTAINS";
         public const string ExistsFunction = "EXISTS";
         public const string NotOperator = "NOT";
+        public const string IsNullOperator = "IS NULL";
+        public const string IsNotNullOperator = "IS NOT NULL";
         public const string OptionalOption = "OPTIONAL";
         public const string MatchCommand = "MATCH";
         public const string OptionalMatchCommand = "OPTIONAL MATCH";
