@@ -83,6 +83,9 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
                 Hash = factory.Hash,
                 Label = label,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(type)
+                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node,
                 Type = type,
             };
@@ -127,6 +130,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Object = thing,
                 Type = thing.GetType(),
                 Label = nodeLabel,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(thing.GetType())
+                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node
             };
 
@@ -150,7 +156,12 @@ namespace Chrono.Graph.Adapter.Neo4j
             var properties = vars.Count > 0
                 ? $" {{{vars.Select(i => $"{i.Key}:${prefix}{i.Key}{factory.Hash}").Aggregate((a, b) => $"{a}, {b}")}}}"
                 : "";
-            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {nodeLabel}{properties})"];
+            var primary = Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel(factory.RootVar.Label);
+            var secondaries = factory.RootVar.SecondaryLabels?.Any() ?? false
+                ? $":{string.Join(":", factory.RootVar.SecondaryLabels.Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel))}"
+                : string.Empty;
+            var allLabels = $"{primary}{secondaries}";
+            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {allLabels}{properties})"];
 
             return factory;
 
@@ -487,7 +498,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var result = $"{cmd} ({cypherVar.Var}){rightEdgeArrow}[{edgeVar}{edgeLabel}]{leftEdgeArrow}({connectedVar}{connectedLabel})";
 
             // Append WHERE for child if any clauses were defined via Join(operand, clause)
-            if ((connection.Value.Clauses?.Count ?? 0) > 0 || (connection.Value.SubClauses?.Any(c => (c.Clauses?.Count ?? 0) > 0) ?? false))
+            if (connection.Value.Clauses.Count > 0 || (connection.Value.SubClauses?.Any(c => (c.Clauses?.Count ?? 0) > 0) ?? false))
             {
                 var makeKey = new Func<string, string>(s => $"{s}{Hash}");
 
@@ -730,7 +741,12 @@ namespace Chrono.Graph.Adapter.Neo4j
                         Var = RootVar.Var,
                     });
 
-                Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {label} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
+                var primary = Utils.StandardizeNodeLabel(RootVar.Label);
+                var secondaries = RootVar.SecondaryLabels?.Any() ?? false
+                    ? $":{string.Join(":", RootVar.SecondaryLabels.Select(Utils.StandardizeNodeLabel))}"
+                    : string.Empty;
+                var allLabels = $"{primary}{secondaries}";
+                Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {allLabels} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
             }
         }
 
@@ -990,7 +1006,16 @@ namespace Chrono.Graph.Adapter.Neo4j
 
         public IQueryClauseGroup WhereGroup(Action<IQueryFactory> builder)
         {
-            return new ClauseGroup();
+            // Allow grouped predicates to be added via the provided builder,
+            // which can call Where/And/Or on this factory to populate SubClauses
+            var before = SubClauses.ToList();
+            builder(this);
+            var after = SubClauses.ToList();
+
+            // Ensure there is always a chaining target
+            var subclause = new ClauseGroup();
+            SubClauses = SubClauses.Append(subclause);
+            return subclause;
         }
         /// <summary>
         /// Very important for updating objects having different property objects from the initial save.  Remove the old object connection before adding a new node.  
@@ -1033,9 +1058,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var edge = ObjectHelper.GetPropertyEdge(prop);
                 var edgeLabel = edge?.Label ?? prop.Name;
                 var rootLabel = ObjectHelper.GetObjectLabel(thingType);
-				//default to out
-				var outArrow = (edge?.Direction ?? GraphEdgeDirection.Out) == GraphEdgeDirection.Out ? ">" : "";
-				var inArrow = edge?.Direction == GraphEdgeDirection.In ? "<" : "";
+                //default to out
+                var outArrow = (edge?.Direction ?? GraphEdgeDirection.Out) == GraphEdgeDirection.Out ? ">" : "";
+                var inArrow = edge?.Direction == GraphEdgeDirection.In ? "<" : "";
 
                 // Handle arrays/lists of objects
                 if (prim.HasFlag(GraphPrimitivity.Object) && !prim.HasFlag(GraphPrimitivity.Array))

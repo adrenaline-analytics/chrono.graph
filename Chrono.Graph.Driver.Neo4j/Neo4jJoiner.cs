@@ -42,6 +42,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                             Var = $"{objectLabel}{Utils.CypherId()}",
                             Edge = ObjectHelper.GetPropertyEdge(member, true, enumFieldLabel), //must always be OPTIONAL MATCH
                             Label = objectLabel,
+                            SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(member.PropertyType)
+                                .Select(Utils.StandardizeNodeLabel)
+                                .ToList(),
                             GraphType = GraphObjectType.Node,
                         };
                         enumFieldSubfactory.JoinRegistry = [.. JoinRegistry];
@@ -60,6 +63,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Var = $"{objectLabel}{Utils.CypherId()}",
                 Edge = ObjectHelper.GetPropertyEdge(member, optional),
                 Label = objectLabel,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(member.PropertyType)
+                    .Select(Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node,
             };
             subfactory.JoinRegistry = [.. JoinRegistry];

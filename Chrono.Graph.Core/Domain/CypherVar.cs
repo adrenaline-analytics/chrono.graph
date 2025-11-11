@@ -18,6 +18,7 @@ namespace Chrono.Graph.Core.Domain
                     : Utils.StandardizeNodeLabel(_label);
             set => _label = value;
         }
+        public IList<string> SecondaryLabels { get; set; } = [];
         public GraphObjectType GraphType { get; set; } = GraphObjectType.Node;
         public Dictionary<string, Clause> Clauses { get; set; } = [];
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = [];
