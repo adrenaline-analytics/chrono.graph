@@ -4,6 +4,13 @@ using Chrono.Graph.Core.Domain;
 namespace Chrono.Graph.Core.Notations
 {
     [AttributeUsage(AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Field)]
+    public class GraphSquishAttribute : Attribute
+    {
+        ///Put all child properties in parent object as child.property / child[index].property 
+        ///connect child edges to parent
+    }
+
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Class | AttributeTargets.Field)]
     public class GraphEdgeAttribute : Attribute
     {
         public GraphEdgeDetails? Definition { get; set; }

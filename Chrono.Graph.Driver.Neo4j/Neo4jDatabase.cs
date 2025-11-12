@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using Castle.Core.Internal;
 using Chrono.Graph.Core.Application;
@@ -80,14 +81,60 @@ namespace Chrono.Graph.Adapter.Neo4j
                 });
 
 
-        public Task RemoveEdge<T, TT>(T from, string edge, TT what) where T : class
+        public Task RemoveEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class
         {
-            throw new NotImplementedException();
+            // Build a query to remove the edge defined by the operand's property
+            // Usage: db.RemoveEdge<Parent, Child>(p => p.Child)
+            var member = (operand.Body as MemberExpression) ?? throw new ArgumentException("Operand must be a property expression");
+            var prop = (member.Member as PropertyInfo) ?? throw new ArgumentException("Operand must target a property");
+
+            return new CypherTransaction(_driver, _queryConfig).Execute(() =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMatch<T>(q => { });
+                var rootLabel = ObjectHelper.GetObjectLabel(typeof(T));
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var childLabel = ObjectHelper.GetObjectLabel((prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : prop.PropertyType));
+
+                var idProp = ObjectHelper.GetIdProp(typeof(T));
+                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
+                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
+
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}})-[rel:{edgeLabel}]->(:{childLabel}) DELETE rel";
+                factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
+                return factory;
+            });
 
         }
-        public Task AddEdge<T, TT>(T from, string verb, TT to) where T : class
+        public Task AddEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class
         {
-            throw new NotImplementedException();
+            // Build a query to add the edge defined by the operand's property
+            // Usage: db.AddEdge<Parent, Child>(p => p.Child) – assumes both nodes exist and are identified by Id
+            var member = (operand.Body as MemberExpression) ?? throw new ArgumentException("Operand must be a property expression");
+            var prop = (member.Member as PropertyInfo) ?? throw new ArgumentException("Operand must target a property");
+
+            return new CypherTransaction(_driver, _queryConfig).Execute(() =>
+            {
+                var factory = Neo4jFactory.BootstrapWithMatch<T>(q => { });
+                var rootLabel = ObjectHelper.GetObjectLabel(typeof(T));
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var childThing = prop.GetValue(thing) ?? throw new ArgumentException("The child object must be set on the parent object to create the edge");
+
+                var childType = (prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : prop.PropertyType);
+                var childLabel = ObjectHelper.GetObjectLabel(childType);
+
+                var idProp = ObjectHelper.GetIdProp(typeof(T));
+                var childIdProp = ObjectHelper.GetIdProp(childType);
+
+                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
+                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
+                factory.Statement.InVars[makeKey(childIdProp.Name)] = new CypherVar { Var = makeKey(childIdProp.Name), Object = childIdProp.GetValue(childThing) };
+
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(childIdProp.Name)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
+                factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
+                return factory;
+            });
         }
 
 
@@ -118,14 +165,14 @@ namespace Chrono.Graph.Adapter.Neo4j
             await transaction.Execute();
         }
 
-        public Task Put<T>(T thing) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { });
-        public Task Put<T>(T thing, Action<IJoiner> joiner) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner);
-        public Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner) where T : class
+        public Task Put<T>(T thing, bool removeStaleArrayItems = false) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { }, removeStaleArrayItems);
+        public Task Put<T>(T thing, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class => Put(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner, removeStaleArrayItems);
+        public Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
         {
             var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-            return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner);
+            return Put(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner, removeStaleArrayItems);
         }
-        public async Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class
+        public async Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
         {
             //This portion calls the func via the transaction that uses
             //factory.Build to create the cypher and run it against the driver
@@ -133,7 +180,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var transaction = new CypherTransaction(_driver, _queryConfig, () =>
             {
                 var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
-                factory.RemoveStaleConnections(thing);
+                factory.RemoveStaleConnections(thing, removeStaleArrayItems);
                 factory.OnCreateSet(thing);
                 factory.OnMatchSet(thing, true);
 
@@ -148,15 +195,15 @@ namespace Chrono.Graph.Adapter.Neo4j
             }
         }
 
-        public Task Patch<T>(T thing, bool removeStaleConnections = false) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { }, removeStaleConnections);
-        public Task Patch<T>(T thing, Action<IJoiner> joiner, bool removeStaleConnections = false) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner, removeStaleConnections);
-        public Task Patch<T>(T thing, Action<IQueryClause> clauser, bool removeStaleConnections = false) where T : class => Patch(thing, clauser, j => { }, removeStaleConnections);
-        public async Task Patch<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner, bool removeStaleConnections = false) where T : class
+        public Task Patch<T>(T thing, bool removeStaleArrayItems = false) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), j => { }, removeStaleArrayItems);
+        public Task Patch<T>(T thing, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class => Patch(thing, ObjectHelper.GetIdProp(thing.GetType()), joiner, removeStaleArrayItems);
+        public Task Patch<T>(T thing, Action<IQueryClause> clauser, bool removeStaleArrayItems = false) where T : class => Patch(thing, clauser, j => { }, removeStaleArrayItems);
+        public async Task Patch<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
         {
             var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
-            await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner, removeStaleConnections);
+            await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner, removeStaleArrayItems);
         }
-        public async Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleConnections = false) where T : class
+        public async Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
         {
             //This portion calls the func via the transaction that uses
             //factory.Build to create the cypher and run it against the driver
@@ -164,8 +211,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var transaction = new CypherTransaction(_driver, _queryConfig, () =>
             {
                 var factory = Neo4jFactory.BootstrapWithMerge(thing, clauser);
-                if (removeStaleConnections)
-                    factory.RemoveStaleConnections(thing);
+				factory.RemoveStaleConnections(thing, removeStaleArrayItems);
                 factory.OnMatchSet(thing, false);
 
                 return factory;
@@ -174,7 +220,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (transaction?.Factory != null)
             {
                 joiner(transaction.Factory);
-                PatchChildren(thing, transaction, transaction.Factory, removeStaleConnections);
+                PatchChildren(thing, transaction, transaction.Factory, removeStaleArrayItems);
                 await transaction.Execute();
             }
 
@@ -250,7 +296,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             return childFactory;
         }
-        private void PutChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory)
+        private void PutChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory, bool removeStaleArrayItems = false)
         {
             var childFactory = parentFactory;
             WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) =>
@@ -260,9 +306,9 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 transaction.ContinueWith<T>(factory =>
                 {
-                    childFactory = PutChild(thing, child, prop, parentFactory, childFactory, edge);
+                    childFactory = PutChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleArrayItems);
                 });
-                PutChildren(child, transaction, childFactory);
+                PutChildren(child, transaction, childFactory, removeStaleArrayItems);
             },
             (dicInfo, key, child, prop, currentDepth, edge) =>
             {
@@ -271,12 +317,12 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 transaction.ContinueWith<T>(factory =>
                 {
-                    childFactory = PutChild(thing, child, prop, parentFactory, childFactory, edge);
+                    childFactory = PutChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleArrayItems);
                 });
-                PutChildren(child, transaction, childFactory);
+                PutChildren(child, transaction, childFactory, removeStaleArrayItems);
             });
         }
-        private IQueryFactory PutChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge)
+        private IQueryFactory PutChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge, bool removeStaleArrayItems = false)
         {
 
             if (parent == null)
@@ -295,7 +341,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
                     subFactory =>
                     {
-                        subFactory.RemoveStaleConnections(child);
+                        subFactory.RemoveStaleConnections(child, removeStaleArrayItems);
                         subFactory.OnCreateSet(child);
                         subFactory.OnMatchSet(child, false);
                     },
@@ -320,7 +366,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             return childFactory;
         }
-        private void PatchChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory, bool removeStaleConnections = false) where T : notnull
+        private void PatchChildren<T>(T thing, CypherTransaction transaction, IQueryFactory parentFactory, bool removeStaleArrayItems = false) where T : notnull
         {
             var childFactory = parentFactory;
             WriteChildrenRecursively(thing, transaction, parentFactory, (child, prop, currentDepth, edge) =>
@@ -345,9 +391,9 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 transaction.ContinueWith<T>(factory =>
                 {
-                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleConnections);
+                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleArrayItems);
                 });
-                PatchChildren(child, transaction, childFactory, removeStaleConnections);
+                PatchChildren(child, transaction, childFactory, removeStaleArrayItems);
             },
             (dicInfo, key, child, prop, currentDepth, edge) =>
             {
@@ -371,12 +417,12 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 transaction.ContinueWith<T>(factory =>
                 {
-                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleConnections);
+                    childFactory = PatchChild(thing, child, prop, parentFactory, childFactory, edge, removeStaleArrayItems);
                 });
-                PatchChildren(child, transaction, childFactory, removeStaleConnections);
+                PatchChildren(child, transaction, childFactory, removeStaleArrayItems);
             });
         }
-        private IQueryFactory PatchChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge, bool removeStaleConnections = false)
+        private IQueryFactory PatchChild(object? parent, object child, PropertyInfo prop, IQueryFactory parentFactory, IQueryFactory childFactory, GraphEdgeDetails edge, bool removeStaleArrayItems = false)
         {
 
             if (parent == null)
@@ -395,9 +441,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     t => t.Where(idProp.Name, Is.Equal(idProp.GetValue(child)), child.GetType()),
                     subFactory =>
                     {
-                        if (removeStaleConnections)
-                            subFactory.RemoveStaleConnections(child);
-
+						subFactory.RemoveStaleConnections(child, removeStaleArrayItems);
                         subFactory.OnCreateSet(child);
                         subFactory.OnMatchSet(child, false);
                     },
