@@ -403,6 +403,10 @@ namespace Chrono.Graph.Adapter.Neo4j
             }
 
             var label = Utils.StandardizeNodeLabel(ObjectHelper.GetObjectLabel(type));
+            var secondary = RootVar.SecondaryLabels?.Any() ?? false
+                ? $":{string.Join(":", RootVar.SecondaryLabels.Select(Utils.StandardizeNodeLabel))}"
+                : string.Empty;
+            var allLabels = $"{label}{secondary}";
             var outVar = new CypherVar
             {
                 GraphType = GraphObjectType.Node,
@@ -453,7 +457,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     whereClause = $"WHERE {predicates.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a} AND {b}")}";
             }
 
-            return $"({RootVar.Var}:{label}{inlineMap})";
+            return $"({RootVar.Var}:{allLabels}{inlineMap})";
         }
         internal string[] GeneratePropertyNullsDict(object thing)
         {
