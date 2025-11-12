@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+﻿using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Chrono.Graph.Core.Application
 {
@@ -36,7 +37,6 @@ namespace Chrono.Graph.Core.Application
         /// <param name="clauser"></param>
         /// <returns></returns>
         Task<IEnumerable<T>> Get<T>(Action<IQueryClause> clauser) where T : class;
-        Task AddEdge<T, TT>(T from, string verb, TT to) where T : class;
         /// <summary>
         /// Create a brand new object
         /// </summary>
@@ -59,7 +59,7 @@ namespace Chrono.Graph.Core.Application
         /// <typeparam name="T"></typeparam>
         /// <param name="thing"></param>
         /// <returns></returns>
-        Task Put<T>(T thing) where T : class;
+        Task Put<T>(T thing, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Put a brand new object or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
@@ -67,7 +67,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="thing"></param>
         /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, Action<IJoiner> joiner) where T : class;
+        Task Put<T>(T thing, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Put a brand new objects recursively or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
@@ -76,7 +76,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="idProp"></param>
         /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner) where T : class;
+        Task Put<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Put a brand new objects recursively or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
@@ -85,7 +85,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="clauser"></param>
         /// <param name="joiner"></param>
         /// <returns></returns>
-        Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner) where T : class;
+        Task Put<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Put a brand new object or update an existing one.  Null values in the updated object will overwrite (delete) the value on the existing object
         /// </summary>
@@ -103,7 +103,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="o"></param>
         /// <returns></returns>
         /// <exception cref="NotImplementedException"></exception>
-        Task Patch<T>(T thing, bool removeStaleConnections = false) where T : class;
+        Task Patch<T>(T thing, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Update an existing object
         /// NULL VALUES ARE SAFE and will NOT overwrite the value on the existing object
@@ -112,7 +112,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="thing"></param>
         /// <param name="nodeDepth"></param>
         /// <returns></returns>
-        Task Patch<T>(T thing, Action<IJoiner> joiner, bool removeStaleConnections = false) where T : class;
+        Task Patch<T>(T thing, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class;
 		/// <summary>
 		/// Update an existing object
 		/// NULL VALUES ARE SAFE and will NOT overwrite the value on the existing object
@@ -121,8 +121,8 @@ namespace Chrono.Graph.Core.Application
 		/// <param name="o"></param>
 		/// <param name="clauser"></param>
 		/// <returns></returns>
-		/// <param name="removeStaleConnections"></param>
-		Task Patch<T>(T o, Action<IQueryClause> clauser, bool removeStaleConnections = false) where T : class;
+		/// <param name="removeStaleArrayItems"></param>
+		Task Patch<T>(T o, Action<IQueryClause> clauser, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Update an existing object
         /// NULL VALUES ARE SAFE and will NOT overwrite the value on the existing object
@@ -133,7 +133,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="nodeDepth"></param>
         /// <returns></returns>
         /// <exception cref="NotImplementedException"></exception>
-        Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleConnections = false) where T : class;
+        Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class;
         /// <summary>
         /// Delete an object
         /// </summary>
@@ -178,6 +178,7 @@ namespace Chrono.Graph.Core.Application
         /// <param name="parameters">Optional parameters for the query</param>
         /// <returns>The query result as a list of dictionaries where each dictionary represents a record</returns>
         Task<IList<IDictionary<string, object?>>> Execute(string cypher, Dictionary<string, object?>? parameters = null);
-        Task RemoveEdge<T, TT>(T from, string edge, TT what) where T : class;
+        Task AddEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class;
+        Task RemoveEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class;
     }
 }

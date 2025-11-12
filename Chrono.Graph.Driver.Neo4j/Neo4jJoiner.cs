@@ -1,11 +1,11 @@
-﻿using Chrono.Graph.Core.Application;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
+using System.Reflection;
+using Chrono.Graph.Core.Application;
 using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
-using System.Diagnostics;
-using System.Linq.Expressions;
-using System.Reflection;
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
@@ -19,9 +19,9 @@ namespace Chrono.Graph.Adapter.Neo4j
         public HashSet<string> JoinRegistry { get; set; } = [];
         public CypherVar RootVar { get; protected set; } = new();
 
-        private Neo4jJoiner JoinRoller<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner, bool optional) 
+        private Neo4jJoiner JoinRoller<T, P>(Expression<Func<T, P>> operand, Action<IQueryClause> clause, Action<IJoiner> deepJoiner, bool optional)
             => JoinRoller(operand.GetExpressionProperty(), clause, deepJoiner, optional);
-        private Neo4jJoiner JoinRoller(PropertyInfo member, Clause clause, Action<IJoiner> deepJoiner, bool optional)
+        private Neo4jJoiner JoinRoller(PropertyInfo member, Action<IQueryClause> clause, Action<IJoiner> deepJoiner, bool optional)
         {
             RootVar.SaveChildFilter ??= [];
             RootVar.SaveChildFilter.Add(member.Name);
@@ -31,9 +31,9 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (primitivity.HasFlag(GraphPrimitivity.Dictionary))
             {
                 var dicInfo = ObjectHelper.GetDictionaryInfo(member.PropertyType);
-                if ((dicInfo?.KeyType?.IsEnum  ?? false) && member.GetCustomAttribute<GraphKeyLabellingAttribute>() != null)
+                if ((dicInfo?.KeyType?.IsEnum ?? false) && member.GetCustomAttribute<GraphKeyLabellingAttribute>() != null)
                 {
-                    foreach(var enumFieldLabel in ObjectHelper.GetDictionaryLabels(dicInfo, member))
+                    foreach (var enumFieldLabel in ObjectHelper.GetDictionaryLabels(dicInfo, member))
                     {
                         var enumFieldSubfactory = new Neo4jJoiner();
                         enumFieldSubfactory.RootVar = new CypherVar
@@ -42,6 +42,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                             Var = $"{objectLabel}{Utils.CypherId()}",
                             Edge = ObjectHelper.GetPropertyEdge(member, true, enumFieldLabel), //must always be OPTIONAL MATCH
                             Label = objectLabel,
+                            SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(member.PropertyType)
+                                .Select(Utils.StandardizeNodeLabel)
+                                .ToList(),
                             GraphType = GraphObjectType.Node,
                         };
                         enumFieldSubfactory.JoinRegistry = [.. JoinRegistry];
@@ -60,23 +63,62 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Var = $"{objectLabel}{Utils.CypherId()}",
                 Edge = ObjectHelper.GetPropertyEdge(member, optional),
                 Label = objectLabel,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(member.PropertyType)
+                    .Select(Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node,
             };
             subfactory.JoinRegistry = [.. JoinRegistry];
+            // Apply clause to child variable if provided
+            if (clause != null)
+            {
+                var childClause = new ChildQueryClause(subfactory.RootVar);
+                clause(childClause);
+            }
             deepJoiner(subfactory);
             RootVar.Connections[member.Name] = subfactory.RootVar;
 
             return this;
         }
 
-        public IJoiner Join<T, P>(Expression<Func<T, P?>> operand) => Join(operand, new Clause(), _ => { });
-        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Clause clause) => Join(operand, clause, _ => { });
-        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Action<IJoiner> deepJoiner) => Join(operand, new Clause(), deepJoiner);
-        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner) => JoinRoller(operand, clause, deepJoiner, false);
-        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand) => JoinOptional(operand, new Clause(), _ => { });
-        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Clause clause) => JoinOptional(operand, clause, _ => { });
-        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Action<IJoiner> deepJoiner) => JoinOptional(operand, new Clause(), deepJoiner);
-        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Clause clause, Action<IJoiner> deepJoiner) => JoinRoller(operand, clause, deepJoiner, true);
+        private class ChildQueryClause : IQueryClause
+        {
+            private readonly CypherVar _var;
+            public ChildQueryClause(CypherVar v) { _var = v; }
+            public Dictionary<string, Clause> Clauses => _var.Clauses;
+            public IQueryClauseGroup All()
+            {
+                var sub = new ClauseGroup();
+                _var.SubClauses = _var.SubClauses.Append(sub);
+                return sub;
+            }
+            public IQueryClauseGroup Where<T, P>(Expression<Func<T, P?>> operand, Clause clause) => Where(operand.GetExpressionPropertyName(), clause, typeof(T));
+            public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));
+            public IQueryClauseGroup Where(string operand, Clause clause, Type type)
+            {
+                if (!_var.Clauses.TryAdd(ObjectHelper.GetPropertyLabel(type, operand), clause)
+                    && _var.Clauses.TryGetValue(ObjectHelper.GetPropertyLabel(type, operand), out var existing)
+                    && !existing.Equals(clause))
+                    throw new ArgumentException("A data collision has occurred when attempting to build a clause");
+
+                var sub = new ClauseGroup();
+                _var.SubClauses = _var.SubClauses.Append(sub);
+                return sub;
+            }
+            public IQueryClauseGroup WhereGroup(Action<IQueryFactory> builder)
+            {
+                return new ClauseGroup();
+            }
+        }
+
+        public IJoiner Join<T, P>(Expression<Func<T, P?>> operand) => Join(operand, _ => { }, _ => { });
+        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Action<IQueryClause> clause) => Join(operand, clause, _ => { });
+        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Action<IJoiner> deepJoiner) => Join(operand, _ => { }, deepJoiner);
+        public IJoiner Join<T, P>(Expression<Func<T, P>> operand, Action<IQueryClause> clause, Action<IJoiner> deepJoiner) => JoinRoller(operand, clause, deepJoiner, false);
+        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand) => JoinOptional(operand, _ => { }, _ => { });
+        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Action<IQueryClause> clause) => JoinOptional(operand, clause, _ => { });
+        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Action<IJoiner> deepJoiner) => JoinOptional(operand, _ => { }, deepJoiner);
+        public IJoiner JoinOptional<T, P>(Expression<Func<T, P>> operand, Action<IQueryClause> clause, Action<IJoiner> deepJoiner) => JoinRoller(operand, clause, deepJoiner, true);
         //public IJoiner JoinAllChildren(object thing) => JoinAllChildrenRecursive(thing, 1);
         //public IJoiner JoinAllChildrenRecursive(object thing, int depth)
         //{

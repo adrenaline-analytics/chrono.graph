@@ -83,6 +83,9 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
                 Hash = factory.Hash,
                 Label = label,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(type)
+                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node,
                 Type = type,
             };
@@ -127,6 +130,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Object = thing,
                 Type = thing.GetType(),
                 Label = nodeLabel,
+                SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(thing.GetType())
+                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .ToList(),
                 GraphType = GraphObjectType.Node
             };
 
@@ -150,7 +156,12 @@ namespace Chrono.Graph.Adapter.Neo4j
             var properties = vars.Count > 0
                 ? $" {{{vars.Select(i => $"{i.Key}:${prefix}{i.Key}{factory.Hash}").Aggregate((a, b) => $"{a}, {b}")}}}"
                 : "";
-            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {nodeLabel}{properties})"];
+            var primary = Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel(factory.RootVar.Label);
+            var secondaries = factory.RootVar.SecondaryLabels?.Any() ?? false
+                ? $":{string.Join(":", factory.RootVar.SecondaryLabels.Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel))}"
+                : string.Empty;
+            var allLabels = $"{primary}{secondaries}";
+            statement.Commands = [.. statement.Commands, $"CREATE ({factory.RootVar.Var}: {allLabels}{properties})"];
 
             return factory;
 
@@ -236,6 +247,11 @@ namespace Chrono.Graph.Adapter.Neo4j
         }
         private object StandardizeOperandForCypher(string op, object? operand)
         {
+            if (op == CypherConstants.NotOperator && operand is Clause inner)
+            {
+                // Unwrap NOT(...) so parameter binding uses the inner clause's operand
+                return StandardizeOperandForCypher(inner.Operator, inner.Operand);
+            }
             if (op == CypherConstants.InOperator)
             {
                 if (operand == null)
@@ -258,13 +274,19 @@ namespace Chrono.Graph.Adapter.Neo4j
             var key = clause.Key;
             var op = clause.Value.Operator;
             if (op == CypherConstants.ExistsFunction)
-                return $"EXISTS({varName}.{key})";
+                return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
+            if (op == CypherConstants.IsNotNullOperator)
+                return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
+            if (op == CypherConstants.IsNullOperator)
+                return $"{varName}.{key} {CypherConstants.IsNullOperator}";
             if (op == CypherConstants.NotOperator && clause.Value.Operand is Clause inner)
             {
-                var innerOp = inner.Operator == CypherConstants.EqualsOperator ? "=" : inner.Operator;
-                var innerKey = key;
-                var param = $"${innerKey}{Hash}";
-                return $"NOT ({varName}.{innerKey} {innerOp} {param})";
+                if (inner.Operator == CypherConstants.ExistsFunction)
+                    return $"{varName}.{key} {CypherConstants.IsNullOperator}";
+
+                var map = MapOperatorForWhere(inner.Operator);
+                var param = $"${key}{Hash}";
+                return $"NOT ({varName}.{key} {map} {param})";
             }
             var mapped = MapOperatorForWhere(op);
             return $"{varName}.{key} {mapped} ${key}{Hash}";
@@ -277,11 +299,21 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var predicates = clauseGroup.Clauses
                     .Select(c => BuildPredicate(varName, c))
                     .ToList();
+
                 var sub = RecurseSubClausesForWhere(clauseGroup.SubClauses, varName);
                 if (!string.IsNullOrEmpty(sub))
                     predicates.Add(sub);
+
                 if (predicates.Count > 0)
-                    groups.Add(predicates.Aggregate((a, b) => $"{a} AND {b}"));
+                {
+                    var hasOr = clauseGroup.Clauses.Values.Any(c => c.IsGroupOrExpression);
+                    var joiner = hasOr ? " OR " : " AND ";
+                    var combined = predicates.Aggregate((a, b) => $"{a}{joiner}{b}");
+                    // Wrap groups to preserve intended precedence when mixed with outer ANDs
+                    if (predicates.Count > 1)
+                        combined = $"({combined})";
+                    groups.Add(combined);
+                }
             }
             return groups.Count > 0 ? groups.Aggregate((a, b) => $"{a} AND {b}") : string.Empty;
         }
@@ -371,6 +403,10 @@ namespace Chrono.Graph.Adapter.Neo4j
             }
 
             var label = Utils.StandardizeNodeLabel(ObjectHelper.GetObjectLabel(type));
+            var secondary = RootVar.SecondaryLabels?.Any() ?? false
+                ? $":{string.Join(":", RootVar.SecondaryLabels.Select(Utils.StandardizeNodeLabel))}"
+                : string.Empty;
+            var allLabels = $"{label}{secondary}";
             var outVar = new CypherVar
             {
                 GraphType = GraphObjectType.Node,
@@ -421,7 +457,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                     whereClause = $"WHERE {predicates.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a} AND {b}")}";
             }
 
-            return $"({RootVar.Var}:{label}{inlineMap})";
+            return $"({RootVar.Var}:{allLabels}{inlineMap})";
         }
         internal string[] GeneratePropertyNullsDict(object thing)
         {
@@ -464,6 +500,57 @@ namespace Chrono.Graph.Adapter.Neo4j
             var leftEdgeArrow = connection.Value.Edge?.Direction == GraphEdgeDirection.Out ? $"->" : "-";
 
             var result = $"{cmd} ({cypherVar.Var}){rightEdgeArrow}[{edgeVar}{edgeLabel}]{leftEdgeArrow}({connectedVar}{connectedLabel})";
+
+            // Append WHERE for child if any clauses were defined via Join(operand, clause)
+            if (connection.Value.Clauses.Count > 0 || (connection.Value.SubClauses?.Any(c => (c.Clauses?.Count ?? 0) > 0) ?? false))
+            {
+                var makeKey = new Func<string, string>(s => $"{s}{Hash}");
+
+                foreach (var c in connection.Value.Clauses)
+                {
+                    var key = makeKey(c.Key);
+                    Statement.InVars[key] = new CypherVar
+                    {
+                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Var = key
+                    };
+                    if (c.Value.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(key);
+                }
+
+                if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
+                {
+                    var subVars = RecurseSubClausesForVars(connection.Value.SubClauses);
+                    foreach (var c in subVars)
+                    {
+                        var key = makeKey(c.Key);
+                        Statement.InVars[key] = new CypherVar
+                        {
+                            Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                            Var = key
+                        };
+                        if (c.Value.Operator == CypherConstants.InOperator)
+                            _rawParamKeys.Add(key);
+                    }
+                }
+
+                var predicates = new List<string>();
+                if (connection.Value.Clauses.Count > 0)
+                    predicates.Add(connection.Value.Clauses
+                        .Select(c => BuildPredicate(connectedVar, c))
+                        .Aggregate((a, b) => $"{a} AND {b}"));
+
+                if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
+                {
+                    var subWhere = RecurseSubClausesForWhere(connection.Value.SubClauses, connectedVar);
+                    if (!string.IsNullOrEmpty(subWhere))
+                        predicates.Add(subWhere);
+                }
+
+                if (predicates.Count > 0)
+                    result = $"{result} WHERE {predicates.Where(s => !string.IsNullOrEmpty(s)).Aggregate((a, b) => $"{a} AND {b}")}";
+            }
+
             return result;
         }
 
@@ -658,7 +745,12 @@ namespace Chrono.Graph.Adapter.Neo4j
                         Var = RootVar.Var,
                     });
 
-                Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {label} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
+                var primary = Utils.StandardizeNodeLabel(RootVar.Label);
+                var secondaries = RootVar.SecondaryLabels?.Any() ?? false
+                    ? $":{string.Join(":", RootVar.SecondaryLabels.Select(Utils.StandardizeNodeLabel))}"
+                    : string.Empty;
+                var allLabels = $"{primary}{secondaries}";
+                Statement.Commands = [.. Statement.Commands, $"{CypherConstants.CreateCommand} ({RootVar.Var}: {allLabels} {{{dict.Select(i => $"{i.Key}:${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a}, {b}")}}})"];
             }
         }
 
@@ -902,30 +994,43 @@ namespace Chrono.Graph.Adapter.Neo4j
         public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));
         public IQueryClauseGroup Where(string propertyName, Clause clause, Type type)
         {
-            if (!Clauses.TryAdd(ObjectHelper.GetPropertyLabel(type, propertyName), clause)
-                && Clauses.TryGetValue(ObjectHelper.GetPropertyLabel(type, propertyName), out var existingClause)
+            // Start a new clause group for this Where, so subsequent Or/And calls
+            // can combine with the initial predicate using proper precedence
+            var subclause = new ClauseGroup();
+            var label = ObjectHelper.GetPropertyLabel(type, propertyName);
+
+            if (!subclause.Clauses.TryAdd(label, clause)
+                && subclause.Clauses.TryGetValue(label, out var existingClause)
                 && !existingClause.Equals(clause))
                 throw new ArgumentException("A data collision has occurred when attempting to build a clause");
 
-            var subclause = new ClauseGroup();
             SubClauses = SubClauses.Append(subclause);
             return subclause;
         }
 
         public IQueryClauseGroup WhereGroup(Action<IQueryFactory> builder)
         {
-            return new ClauseGroup();
+            // Allow grouped predicates to be added via the provided builder,
+            // which can call Where/And/Or on this factory to populate SubClauses
+            var before = SubClauses.ToList();
+            builder(this);
+            var after = SubClauses.ToList();
+
+            // Ensure there is always a chaining target
+            var subclause = new ClauseGroup();
+            SubClauses = SubClauses.Append(subclause);
+            return subclause;
         }
         /// <summary>
         /// Very important for updating objects having different property objects from the initial save.  Remove the old object connection before adding a new node.  
         /// If not done a scalar property have connections to more than one node creating an incongruency between the database and the application data model
-        /// Does not process arrays, dictionaries, nulls, graph ignored and graph serialized attributed properties.
-        /// Does process any other nonprimitive object that has a discernable Id
+        /// Does not process dictionaries, nulls, graph ignored and graph serialized attributed properties.
+        /// Processes scalar object references and arrays of objects that have discernable Ids.
         /// If that Id is different from the current, the connection is broken
         /// </summary>
         /// <typeparam name="T">Class to inspect</typeparam>
         /// <param name="thing">Remove old connections on this object</param>
-		public void RemoveStaleConnections<T>(T thing) where T : class
+		public void RemoveStaleConnections<T>(T thing, bool removeStaleArrayItems) where T : class
         {
             if (thing == null)
                 return;
@@ -942,49 +1047,112 @@ namespace Chrono.Graph.Adapter.Neo4j
                     prop.GetAttribute<GraphIgnoreAttribute>() == null                                       // skip ignored props
                     && prop.GetValue(thing) != null                                                         // skip null properties
                     && !ObjectHelper.IsSerializable(prop)                                                   // skip objects marked to be serialized
-                    && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array)      // Skip arrays
                     && !ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary) // Skip dictionaries
-                    && ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object));
+                    && (ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Object)
+                        || ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Array)) // include scalars and arrays of objects
+                );
 
             foreach (var prop in properties)
             {
-                var childValue = prop.GetValue(thing);
-                if (childValue == null)
+                var value = prop.GetValue(thing);
+                if (value == null)
                     continue;
 
-                try
+                var prim = ObjectHelper.GetPrimitivity(prop.PropertyType);
+                var edge = ObjectHelper.GetPropertyEdge(prop);
+                var edgeLabel = edge?.Label ?? prop.Name;
+                var rootLabel = ObjectHelper.GetObjectLabel(thingType);
+                //default to out
+                var outArrow = (edge?.Direction ?? GraphEdgeDirection.Out) == GraphEdgeDirection.Out ? ">" : "";
+                var inArrow = edge?.Direction == GraphEdgeDirection.In ? "<" : "";
+
+                // Handle arrays/lists of objects
+                if (prim.HasFlag(GraphPrimitivity.Object) && !prim.HasFlag(GraphPrimitivity.Array))
                 {
-                    var childIdProp = ObjectHelper.GetIdProp(childValue.GetType());
-                    var childId = childIdProp.GetValue(childValue);
+                    // Handle scalar object reference
+                    try
+                    {
+                        var childIdProp = ObjectHelper.GetIdProp(value.GetType());
+                        var childId = childIdProp.GetValue(value);
 
-                    if (childId == null)
-                        continue; // Can't determine ID, skip edge removal
+                        if (childId == null)
+                            continue; // Can't determine ID, skip edge removal
 
-                    var edge = ObjectHelper.GetPropertyEdge(prop);
-                    var edgeLabel = edge?.Label ?? prop.Name;
-                    var rootLabel = ObjectHelper.GetObjectLabel(thingType);
-                    var childLabel = ObjectHelper.GetObjectLabel(childValue.GetType());
+                        var childLabel = ObjectHelper.GetObjectLabel(value.GetType());
 
-                    // Build and execute Cypher to remove stale edges
-                    var cypher =
-$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}})-[rel:{edgeLabel}]->(target:{childLabel})
+                        // Build and execute Cypher to remove stale edges
+                        var cypher =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLabel}]-{outArrow}(target:{childLabel})
 WHERE NOT target.{childIdProp.Name} = $childId
 DELETE rel;";
 
-                    var parameters = new Dictionary<string, object?> {
-                        { "rootId", rootId },
-                        { "childId", childId }
-                    };
-                    Statement.Preloads.Add(cypher, parameters);
+                        var parameters = new Dictionary<string, object?> {
+                            { "rootId", rootId },
+                            { "childId", childId }
+                        };
+                        Statement.Preloads.Add(cypher, parameters);
+                    }
+                    catch
+                    {
+                        // If we can't get ID property or something fails, skip this property
+                        continue;
+                    }
                 }
-                catch
+                //mixed bag with arrays, sometimes you dont always pull the whole list and you want to save just a couple
+                //sometimes you want it to intelligently remove things that arent in a list anymore
+                else if (removeStaleArrayItems && prim.HasFlag(GraphPrimitivity.Array) && value is System.Collections.IEnumerable enumerable && value is not string)
                 {
-                    // If we can't get ID property or something fails, skip this property
-                    continue;
+                    var ids = new List<object>();
+                    Type? elementType = null;
+                    foreach (var item in enumerable)
+                    {
+                        if (item == null) continue;
+                        elementType ??= item.GetType();
+                        try
+                        {
+                            var idProp = ObjectHelper.GetIdProp(item.GetType());
+                            var idVal = idProp.GetValue(item);
+                            if (idVal != null)
+                                ids.Add(idVal);
+                        }
+                        catch { /* skip items without ids */ }
+                    }
+
+                    // If we cannot determine an element type, skip
+                    if (elementType == null)
+                        continue;
+
+                    var childLabel = ObjectHelper.GetObjectLabel(elementType);
+
+                    if (ids.Count == 0)
+                    {
+                        // Remove all existing edges of this type
+                        var cypherAll =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLabel}]-{outArrow}(target:{childLabel})
+                DELETE rel;";
+                        var parametersAll = new Dictionary<string, object?> {
+                                            { "rootId", rootId }
+                                        };
+                        Statement.Preloads.Add(cypherAll, parametersAll);
+                    }
+                    else
+                    {
+                        // Remove any edges whose target id is not in the current collection
+                        // Determine id property name from elementType
+                        var idProp = ObjectHelper.GetIdProp(elementType);
+                        var idName = idProp.Name;
+                        var cypherIn =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLabel}]-{outArrow}(target:{childLabel})
+                WHERE NOT target.{idName} IN $childIds
+                DELETE rel;";
+                        var parametersIn = new Dictionary<string, object?> {
+                                            { "rootId", rootId },
+                                            { "childIds", ids }
+                                        };
+                        Statement.Preloads.Add(cypherIn, parametersIn);
+                    }
                 }
             }
         }
-
-
     }
 }

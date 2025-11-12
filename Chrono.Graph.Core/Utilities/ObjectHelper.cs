@@ -26,14 +26,14 @@ namespace Chrono.Graph.Core.Utilities
         }
         public static string GetPropertyLabel(PropertyInfo t)
         {
-            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
+            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") && !(a?.Secondary ?? false) ? a?.Label ?? t.Name : t.Name);
         }
 
         //public static string GetObjectLabel(PropertyInfo t) => GetObjectLabel(t.PropertyType);
         public static string GetObjectLabel(PropertyInfo t)
         {
             var standardLabel = GetObjectLabel(t.PropertyType);
-            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? standardLabel : standardLabel);
+            return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") && !(a?.Secondary ?? false) ? a?.Label ?? standardLabel : standardLabel);
         }
         public static string GetObjectLabel(Type t)
         {
@@ -53,8 +53,18 @@ namespace Chrono.Graph.Core.Utilities
             }
             else
             {
-                return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") ? a?.Label ?? t.Name : t.Name);
+                return GetLabel<GraphLabelAttribute>(t, a => !string.IsNullOrEmpty(a?.Label ?? "") && !(a?.Secondary ?? false) ? a?.Label ?? t.Name : t.Name);
             }
+        }
+        public static IList<string> GetObjectSecondaryLabels(Type t)
+        {
+            // Collect all GraphLabelAttributes marked as Secondary across inheritance chain
+            var attrs = t.GetCustomAttributes(typeof(GraphLabelAttribute), true)
+                .Cast<GraphLabelAttribute>()
+                .Where(a => a.Secondary && !string.IsNullOrWhiteSpace(a.Label))
+                .Select(a => a.Label!)
+                .ToList();
+            return attrs;
         }
 
         public static string GetLabel<T>(MemberInfo t, Func<T?, string> valueFactory) where T : Attribute

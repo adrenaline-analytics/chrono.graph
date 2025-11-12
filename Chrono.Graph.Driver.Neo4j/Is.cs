@@ -71,6 +71,16 @@ namespace Chrono.Graph.Adapter.Neo4j
             Operand = null,
             Operator = CypherConstants.ExistsFunction
         };
+        public static Clause Null() => new Clause
+        {
+            Operand = null,
+            Operator = CypherConstants.IsNullOperator
+        };
+        public static Clause NotNull() => new Clause
+        {
+            Operand = null,
+            Operator = CypherConstants.IsNotNullOperator
+        };
         public static Clause Not(Clause inner)
             => new Clause
             {
