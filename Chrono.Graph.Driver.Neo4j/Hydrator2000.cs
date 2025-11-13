@@ -12,7 +12,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 {
     public class Hydrator2000
     {
-        private Dictionary<object, object> _cache = [];
+        private Dictionary<(string Type, object Id), object> _cache = [];
         private HashSet<string> _reads = [];
         /// <summary>
         /// Hydrates BOTH the object instance and the edges
@@ -55,11 +55,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (id == null)
                 return null;
 
-            if (_cache.TryGetValue(id, out var cached) && cached != null)
+            if (_cache.TryGetValue((node.Labels.Aggregate((a, b) => $"{a}:{b}"), id), out var cached) && cached != null)
             {
-                if (cached.GetType() != type)
-                    throw new InvalidOperationException($"A cached version of this object [{type}] having id '{id}' is of a different type: {cached.GetType()}");
-
                 return cached;
             }
             return null;
@@ -82,7 +79,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             {
                 if (idProp.SetMethod != null)
                     idProp.SetValue(instance, id);
-                _cache[id] = instance;
+                _cache[(node.Labels.Aggregate((a, b) => $"{a}:{b}"), id)] = instance;
             }
 
             return instance;
