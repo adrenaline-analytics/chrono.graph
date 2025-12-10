@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
@@ -1150,6 +1150,90 @@ $@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLa
                                             { "childIds", ids }
                                         };
                         Statement.Preloads.Add(cypherIn, parametersIn);
+                    }
+                }
+            }
+
+            // Handle GraphKeyLabelling dictionary arrays (remove stale edges per label bucket)
+            if (removeStaleArrayItems)
+            {
+                var dictProps = thingType.GetProperties()
+                    .Where(prop =>
+                        prop.GetAttribute<GraphIgnoreAttribute>() == null
+                        && prop.GetValue(thing) != null
+                        && !ObjectHelper.IsSerializable(prop)
+                        && ObjectHelper.GetPrimitivity(prop.PropertyType).HasFlag(GraphPrimitivity.Dictionary)
+                        && prop.GetCustomAttribute<GraphKeyLabellingAttribute>() != null);
+
+                foreach (var prop in dictProps)
+                {
+                    var value = prop.GetValue(thing);
+                    if (value == null) continue;
+
+                    var dicInfo = ObjectHelper.GetDictionaryInfo(prop.PropertyType);
+                    // Only support enum keys and array/list-of-object values
+                    if (!(dicInfo.KeyType?.IsEnum ?? false) || !dicInfo.ValPrimitivity.HasFlag(GraphPrimitivity.Array))
+                        continue;
+
+                    var rootLabel = ObjectHelper.GetObjectLabel(thingType);
+                    var enumerable = value as System.Collections.IEnumerable;
+                    if (enumerable == null) continue;
+
+                    // Iterate KeyValuePair<TKey, IList<TVal>>
+                    foreach (var kv in enumerable)
+                    {
+                        if (kv == null) continue;
+                        var keyObj = kv.GetType().GetProperty("Key")?.GetValue(kv);
+                        var listObj = kv.GetType().GetProperty("Value")?.GetValue(kv) as System.Collections.IEnumerable;
+                        var edge = ObjectHelper.GetDictionaryEdge(dicInfo, prop, keyObj);
+                        var edgeLabel = edge.Label;
+                        var inArrow = edge.Direction == GraphEdgeDirection.In ? "<" : "";
+                        var outArrow = edge.Direction == GraphEdgeDirection.Out ? ">" : "";
+
+                        // Gather desired child ids and determine element type
+                        var ids = new List<object>();
+                        Type? elementType = null;
+                        if (listObj != null)
+                        {
+                            foreach (var item in listObj)
+                            {
+                                if (item == null) continue;
+                                elementType ??= item.GetType();
+                                try
+                                {
+                                    var idProp = ObjectHelper.GetIdProp(item.GetType());
+                                    var idVal = idProp.GetValue(item);
+                                    if (idVal != null) ids.Add(idVal);
+                                }
+                                catch { /* no id, skip */ }
+                            }
+                        }
+                        // Fallback element type from dictionary value type
+                        elementType ??= ObjectHelper.TrueType(dicInfo.ValType!);
+                        var childLabel = ObjectHelper.GetObjectLabel(elementType);
+                        var idName = ObjectHelper.GetIdProp(elementType).Name;
+
+                        if (ids.Count == 0)
+                        {
+                            // Remove all edges for this label bucket
+                            var cypherAll =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLabel}]-{outArrow}(target:{childLabel})
+DELETE rel;";
+                            var parametersAll = new Dictionary<string, object?> { { "rootId", rootId } };
+                            Statement.Preloads.Add(cypherAll, parametersAll);
+                        }
+                        else
+                        {
+                            var cypherIn =
+$@"MATCH (root:{rootLabel} {{{rootIdProp.Name}: $rootId}}){inArrow}-[rel:{edgeLabel}]-{outArrow}(target:{childLabel})
+WHERE NOT target.{idName} IN $childIds
+DELETE rel;";
+                            var parametersIn = new Dictionary<string, object?> {
+                                { "rootId", rootId },
+                                { "childIds", ids }
+                            };
+                            Statement.Preloads.Add(cypherIn, parametersIn);
+                        }
                     }
                 }
             }
