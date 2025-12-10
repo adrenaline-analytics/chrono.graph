@@ -200,7 +200,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public Task Patch<T>(T thing, Action<IQueryClause> clauser, bool removeStaleArrayItems = false) where T : class => Patch(thing, clauser, j => { }, removeStaleArrayItems);
         public async Task Patch<T>(T thing, PropertyInfo idProp, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
         {
-            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException("An object was attempting to be saved without an identifier.  Why come it's unscannable?");
+            var val = idProp.GetValue(thing) ?? throw new AmbiguousMatchException($"An object of type `{thing.GetType().Name}` was attempting to be saved without an identifier.  Why come it's unscannable?");
             await Patch(thing, q => q.Where<T>(idProp.Name, Is.Equal(val)), joiner, removeStaleArrayItems);
         }
         public async Task Patch<T>(T thing, Action<IQueryClause> clauser, Action<IJoiner> joiner, bool removeStaleArrayItems = false) where T : class
