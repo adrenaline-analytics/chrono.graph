@@ -61,7 +61,6 @@ namespace Chrono.Graph.Adapter.Neo4j
         /// <returns>The query result as a list of dictionaries where each dictionary represents a record</returns>
         public async Task<(IReadOnlyList<IRecord>, IResultSummary)> Execute(string cypher, Dictionary<string, object?>? parameters = null)
         {
-            Debug.WriteLine(cypher);
             var timein = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var (result, summary) = await Driver
                 .ExecutableQuery(cypher)
@@ -69,6 +68,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 .WithConfig(QueryConfig ?? new QueryConfig())
                 .ExecuteAsync();
 
+            Debug.WriteLine(cypher);
             Debug.WriteLine($"Finished in {DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() -  timein} ms");
             return (result, summary);
 
