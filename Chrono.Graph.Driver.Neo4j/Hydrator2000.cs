@@ -197,7 +197,58 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 var labelProperties = ObjectHelper.GetLabelProperty(instance.GetType(), connectedVar.Value.Edge?.Label ?? connectedVar.Value.Label);
                 PropertyInfo? property;
-                if ((labelProperties?.Any() ?? false) && (property = labelProperties.FirstOrDefault()) != null)
+                if (labelProperties?.Any() ?? false)
+                {
+                    // If multiple properties share the same edge label, disambiguate by checking the connected node's type.
+                    // Try to read the connected node to get its labels and match against property element types.
+                    INode? connectedNodeForTypeCheck = null;
+                    if (labelProperties.Count() > 1 
+                        && record.TryGetValue(connectedVar.Value.Var, out var rawForTypeCheck))
+                    {
+                        if (rawForTypeCheck is IList<object> rawListForCheck && rawListForCheck.Count > 0)
+                        {
+                            // For arrays, get the first node to determine the type
+                            if (rawListForCheck[0] is IDictionary<string, object> firstItem 
+                                && firstItem.TryGetValue("node", out var firstNodeObj))
+                            {
+                                connectedNodeForTypeCheck = firstNodeObj as INode;
+                            }
+                        }
+                        else if (rawForTypeCheck is IDictionary<string, object> singleRecord 
+                                 && singleRecord.TryGetValue("node", out var singleNodeObj))
+                        {
+                            connectedNodeForTypeCheck = singleNodeObj as INode;
+                        }
+                    }
+
+                    // Match property by node labels if we have multiple candidates
+                    if (connectedNodeForTypeCheck != null && labelProperties.Count() > 1)
+                    {
+                        property = labelProperties.FirstOrDefault(p =>
+                        {
+                            var primitivity = ObjectHelper.GetPrimitivity(p.PropertyType);
+                            var elementType = primitivity.HasFlag(GraphPrimitivity.Array) && !primitivity.HasFlag(GraphPrimitivity.Dictionary)
+                                ? p.PropertyType.GenericTypeArguments.FirstOrDefault() ?? p.PropertyType
+                                : p.PropertyType;
+                            var expectedLabel = ObjectHelper.GetObjectLabel(elementType);
+                            //var secondaryLabels = ObjectHelper.GetObjectSecondaryLabels(elementType);
+							// Check if any of the node's labels match the expected label or secondary labels
+							return connectedNodeForTypeCheck.Labels.Any(nl =>
+								Utils.StandardizeNodeLabel(nl) == Utils.StandardizeNodeLabel(expectedLabel));
+                                //|| secondaryLabels.Any(sl => Utils.StandardizeNodeLabel(nl) == Utils.StandardizeNodeLabel(sl)));
+                        }) ?? labelProperties.FirstOrDefault();
+                    }
+                    else
+                    {
+                        property = labelProperties.FirstOrDefault();
+                    }
+                }
+                else
+                {
+                    property = null;
+                }
+
+                if (property != null)
                 {
                     var primitivity = ObjectHelper.GetPrimitivity(property.PropertyType);
                     if (!primitivity.HasFlag(GraphPrimitivity.Array))
