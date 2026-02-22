@@ -6,6 +6,7 @@ using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
@@ -85,7 +86,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             private readonly CypherVar _var;
             public ChildQueryClause(CypherVar v) { _var = v; }
-            public Dictionary<string, Clause> Clauses => _var.Clauses;
+            public List<Clause> Clauses => _var.Clauses;
             public IQueryClauseGroup All()
             {
                 var sub = new ClauseGroup();
@@ -96,12 +97,11 @@ namespace Chrono.Graph.Adapter.Neo4j
             public IQueryClauseGroup Where<T>(string operand, Clause clause) => Where(operand, clause, typeof(T));
             public IQueryClauseGroup Where(string operand, Clause clause, Type type)
             {
-                if (!_var.Clauses.TryAdd(ObjectHelper.GetPropertyLabel(type, operand), clause)
-                    && _var.Clauses.TryGetValue(ObjectHelper.GetPropertyLabel(type, operand), out var existing)
-                    && !existing.Equals(clause))
-                    throw new ArgumentException("A data collision has occurred when attempting to build a clause");
-
                 var sub = new ClauseGroup();
+                clause.PropertyLabel = ObjectHelper.GetPropertyLabel(type, operand);
+				clause.Hash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
+                sub.Clauses.Add(clause);
+
                 _var.SubClauses = _var.SubClauses.Append(sub);
                 return sub;
             }

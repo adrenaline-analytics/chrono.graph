@@ -1,12 +1,14 @@
 ﻿using System.Linq.Expressions;
 using Chrono.Graph.Core.Application;
+using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Utilities;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Core.Domain
 {
     public partial class ClauseGroup : IQueryClauseGroup
     {
-        public Dictionary<string, Clause> Clauses { get; set; } = new Dictionary<string, Clause>();
+        public List<Clause> Clauses { get; set; } = [];
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = new List<ClauseGroup>();
         public ClauseGroup()
         {
@@ -17,7 +19,9 @@ namespace Chrono.Graph.Core.Domain
         public IQueryClauseGroup And(string operand, Clause clause, Type type)
         {
             var subclause = new ClauseGroup();
-            Clauses.Add(ObjectHelper.GetPropertyLabel(type, operand), clause);
+            clause.PropertyLabel = ObjectHelper.GetPropertyLabel(type, operand);
+            clause.Hash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
+            Clauses.Add(clause);
             SubClauses = SubClauses.Append(subclause);
             return subclause;
 
@@ -27,7 +31,9 @@ namespace Chrono.Graph.Core.Domain
             var subclause = new ClauseGroup();
             // Mark as group expression for OR chains; Neo4jFactory will format as parentheses
             clause.IsGroupOrExpression = true;
-            Clauses.Add(ObjectHelper.GetPropertyLabel(typeof(T), operand.GetExpressionPropertyName()), clause);
+            clause.PropertyLabel = ObjectHelper.GetPropertyLabel(typeof(T), operand.GetExpressionPropertyName());
+            clause.Hash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
+            Clauses.Add(clause);
             SubClauses = SubClauses.Append(subclause);
             return subclause;
         }
@@ -41,10 +47,10 @@ namespace Chrono.Graph.Core.Domain
             // Ensure OR semantics within each produced group
             foreach (var group in factory.SubClauses)
             {
-                if (!(group.Clauses?.Values.Any(c => c.IsGroupOrExpression) ?? false))
+                if (!(group.Clauses?.Any(c => c.IsGroupOrExpression) ?? false))
                 {
-                    foreach (var kv in group.Clauses.ToArray())
-                        group.Clauses[kv.Key].IsGroupOrExpression = true;
+                    foreach (var clause in group.Clauses ?? [])
+                        clause.IsGroupOrExpression = true;
                 }
                 SubClauses = SubClauses.Append(group);
             }

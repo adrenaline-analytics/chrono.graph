@@ -1,6 +1,8 @@
 using System.Linq.Expressions;
 using Chrono.Graph.Core.Application;
+using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Utilities;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Core.Domain
 {
@@ -8,7 +10,7 @@ namespace Chrono.Graph.Core.Domain
     public class GroupFactory : IQueryFactory
     {
         public Statement Statement { get; set; } = new Statement();
-        public Dictionary<string, Clause> Clauses { get; set; } = new();
+        public List<Clause> Clauses { get; set; } = new();
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = new List<ClauseGroup>();
         public HashSet<string> JoinRegistry { get; set; } = new();
 
@@ -35,7 +37,9 @@ namespace Chrono.Graph.Core.Domain
         {
             var subclause = new ClauseGroup();
             var label = ObjectHelper.GetPropertyLabel(type, operand);
-            subclause.Clauses.Add(label, clause);
+            clause.PropertyLabel = label;
+            clause.Hash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
+            subclause.Clauses.Add(clause);
             SubClauses = SubClauses.Append(subclause);
             return subclause;
         }

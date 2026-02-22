@@ -9,6 +9,7 @@ using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
+using NanoidDotNet;
 
 namespace Chrono.Graph.Adapter.Neo4j
 {
@@ -21,7 +22,7 @@ namespace Chrono.Graph.Adapter.Neo4j
         public bool Locked { get; private set; }
 
         public Statement Statement { get; set; }
-        public Dictionary<string, Clause> Clauses { get; set; } = [];
+        public List<Clause> Clauses { get; set; } = [];
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = [];
         public Dictionary<string, HashSet<GraphEdgeBasic>> InboundEdges { get; set; } = [];
         public Dictionary<int, IQueryFactory> GlobalObjectRegistry { get; } = [];
@@ -84,7 +85,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Hash = factory.Hash,
                 Label = label,
                 SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(type)
-                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .Select(Utils.StandardizeNodeLabel)
                     .ToList(),
                 GraphType = GraphObjectType.Node,
                 Type = type,
@@ -131,15 +132,14 @@ namespace Chrono.Graph.Adapter.Neo4j
                 Type = thing.GetType(),
                 Label = nodeLabel,
                 SecondaryLabels = ObjectHelper.GetObjectSecondaryLabels(thing.GetType())
-                    .Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel)
+                    .Select(Utils.StandardizeNodeLabel)
                     .ToList(),
                 GraphType = GraphObjectType.Node
             };
 
-            var makeKey = new Func<string, string>(s => $"{prefix}{s}{factory.Hash}");
+            var makeKey = new Func<string, string>((s) => $"{prefix}{s}{factory.Hash}");
 
-            statement.InVars.Merge(vars.ToDictionary(
-                i => makeKey(i.Key),
+            statement.InVars.AddRange(vars.Select(
                 i => new CypherVar
                 {
                     Object = i.Value,
@@ -156,7 +156,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             var properties = vars.Count > 0
                 ? $" {{{vars.Select(i => $"{i.Key}:${prefix}{i.Key}{factory.Hash}").Aggregate((a, b) => $"{a}, {b}")}}}"
                 : "";
-            var primary = Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel(factory.RootVar.Label);
+            var primary = Utils.StandardizeNodeLabel(factory.RootVar.Label);
             var secondaries = factory.RootVar.SecondaryLabels?.Any() ?? false
                 ? $":{string.Join(":", factory.RootVar.SecondaryLabels.Select(Chrono.Graph.Core.Utilities.Utils.StandardizeNodeLabel))}"
                 : string.Empty;
@@ -188,7 +188,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (them.Statement != null)
                 me.Statement += them.Statement;
             if (them.Clauses != null && them.Clauses.Count > 0)
-                me.Clauses.Merge(them.Clauses);
+                me.Clauses.AddRange(them.Clauses);
             if (them.SubClauses?.Any() ?? false)
                 me.SubClauses = them.SubClauses.Union(them.SubClauses);
             if (them.SubClauses != null && them.InboundEdges?.Count > 0)
@@ -202,10 +202,11 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (injectables.Count == 0)
                 return;
 
+            var varHash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
             var prefix = onWhat.ToLower();
             var outVar = Statement.OutVars.FirstOrDefault().Value.Var;
 
-            Statement.DoOns[onWhat] = $"ON {onWhat} SET\n\t{injectables.Select(i => $"{outVar}.{i.Key}=${prefix}{i.Key}{Hash}").Aggregate((a, b) => $"{a},\n\t{b}")}";
+            Statement.DoOns[onWhat] = $"ON {onWhat} SET\n\t{injectables.Select(i => $"{outVar}.{i.Key}=${prefix}{i.Key}{Hash}_{varHash}").Aggregate((a, b) => $"{a},\n\t{b}")}";
             if (idempotent && onWhat == CypherConstants.MatchCommand)
             {
                 var deletables = GeneratePropertyNullsDict(thing);
@@ -213,19 +214,19 @@ namespace Chrono.Graph.Adapter.Neo4j
                     Statement.DoOns[CypherConstants.RemoveCommand] = $"{CypherConstants.RemoveCommand}\n\t{deletables.Select(i => $"{RootVar.Var}.{i}").Aggregate((a, b) => $"{a},\n\t{b}")}";
             }
 
-            var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}");
-            Statement.InVars.Merge(injectables.ToDictionary(i => makeKey(i.Key), i => new CypherVar { Object = i.Value, Var = makeKey(i.Key) }));
+			var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}_{varHash}");
+            Statement.InVars.AddRange(injectables.Select(i => new CypherVar { Object = i.Value, Var = makeKey(i.Key) }));
 
         }
-        internal Dictionary<string, Clause> RecurseSubClausesForVars(IEnumerable<ClauseGroup>? clauseGroups)
+        internal List<Clause> RecurseSubClausesForVars(IEnumerable<ClauseGroup>? clauseGroups)
         {
-            var result = new Dictionary<string, Clause>();
+            var result = new List<Clause>();
             foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
-                result.Merge(clauseGroup.Clauses);
+                result.AddRange(clauseGroup.Clauses);
                 var subVars = RecurseSubClausesForVars(clauseGroup.SubClauses);
                 if (subVars.Count > 0)
-                    result.Merge(subVars);
+                    result.AddRange(subVars);
             }
             return result;
         }
@@ -235,8 +236,8 @@ namespace Chrono.Graph.Adapter.Neo4j
             foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 var values = clauseGroup.Clauses
-                        .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
-                        .Aggregate((a, b) => $"{a}, {b}");
+					.Select(c => $"{c.PropertyLabel}{c.Operator} ${Utils.StandardizeVariableName(c.PropertyLabel)}{Hash}_{c.Hash}")
+					.Aggregate((a, b) => $"{a}, {b}");
                 var subValues = RecurseSubClausesForQuery(clauseGroup.SubClauses);
                 if (!string.IsNullOrEmpty(subValues))
                     values = $"{values}, {subValues}";
@@ -269,27 +270,27 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (op == CypherConstants.EqualsOperator) return "=";
             return op;
         }
-        private string BuildPredicate(string varName, KeyValuePair<string, Clause> clause)
+        private string BuildPredicate(string varName, Clause clause, string factoryHash)
         {
-            var key = clause.Key;
-            var op = clause.Value.Operator;
+            var key = $"{clause.PropertyLabel}";
+            var op = clause.Operator;
             if (op == CypherConstants.ExistsFunction)
                 return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
             if (op == CypherConstants.IsNotNullOperator)
                 return $"{varName}.{key} {CypherConstants.IsNotNullOperator}";
             if (op == CypherConstants.IsNullOperator)
                 return $"{varName}.{key} {CypherConstants.IsNullOperator}";
-            if (op == CypherConstants.NotOperator && clause.Value.Operand is Clause inner)
+            if (op == CypherConstants.NotOperator && clause.Operand is Clause inner)
             {
                 if (inner.Operator == CypherConstants.ExistsFunction)
                     return $"{varName}.{key} {CypherConstants.IsNullOperator}";
 
                 var map = MapOperatorForWhere(inner.Operator);
-                var param = $"${key}{Hash}";
+                var param = $"${Utils.StandardizeVariableName(key)}{Hash}_{clause.Hash}";
                 return $"NOT ({varName}.{key} {map} {param})";
             }
             var mapped = MapOperatorForWhere(op);
-            return $"{varName}.{key} {mapped} ${key}{Hash}";
+            return $"{varName}.{key} {mapped} ${Utils.StandardizeVariableName(key)}{Hash}_{clause.Hash}";
         }
         internal string RecurseSubClausesForWhere(IEnumerable<ClauseGroup>? clauseGroups, string varName)
         {
@@ -297,7 +298,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             foreach (var clauseGroup in (clauseGroups ?? []).Where(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 var predicates = clauseGroup.Clauses
-                    .Select(c => BuildPredicate(varName, c))
+                    .Select(c => BuildPredicate(varName, c, Hash))
                     .ToList();
 
                 var sub = RecurseSubClausesForWhere(clauseGroup.SubClauses, varName);
@@ -306,7 +307,7 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 if (predicates.Count > 0)
                 {
-                    var hasOr = clauseGroup.Clauses.Values.Any(c => c.IsGroupOrExpression);
+                    var hasOr = clauseGroup.Clauses.Any(c => c.IsGroupOrExpression);
                     var joiner = hasOr ? " OR " : " AND ";
                     var combined = predicates.Aggregate((a, b) => $"{a}{joiner}{b}");
                     // Wrap groups to preserve intended precedence when mixed with outer ANDs
@@ -320,29 +321,31 @@ namespace Chrono.Graph.Adapter.Neo4j
         internal string GenerateMatchishStatement(Type type)
         {
             var matchClause = Clauses.Count > 0
-                ? Clauses.Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
+                ? Clauses.Select(c => $"{c.PropertyLabel}{c.Operator} ${c.PropertyLabel}{Hash}_{c.Hash}")
                     .Aggregate((a, b) => $"{a}, {b}")
                 : "";
 
-            var makeKey = new Func<string, string>(s => $"{s}{Hash}");
-
-            Statement.InVars.Merge(Clauses.ToDictionary(c => makeKey(c.Key), c =>
+			var makeKey = new Func<string, string, string>((prop, hash) => $"{prop}{Hash}_{hash}");
+            var inVars = Clauses.Select(c =>
                 new CypherVar
                 {
-                    Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
-                    Var = makeKey(c.Key)
-                }));
+                    Object = StandardizeOperandForCypher(c.Operator, c.Operand),
+                    Var = makeKey(c.PropertyLabel, c.Hash)
+                });
+
+            Statement.InVars.AddRange(inVars);
 
             if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
             {
                 var subMatchClause = RecurseSubClausesForQuery(SubClauses);
                 var subVars = RecurseSubClausesForVars(SubClauses);
-                Statement.InVars.Merge(subVars.ToDictionary(c => makeKey(c.Key), c =>
+                var subInVars = subVars.Select(c =>
                     new CypherVar
                     {
-                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
-                        Var = makeKey(c.Key)
-                    }));
+                        Object = StandardizeOperandForCypher(c.Operator, c.Operand),
+                        Var = makeKey(c.PropertyLabel, c.Hash)
+                    }).ToList();
+                Statement.InVars.AddRange(subInVars);
 
                 matchClause = $"{(!string.IsNullOrEmpty(matchClause) ? $"{matchClause}, " : "")}{subMatchClause}";
             }
@@ -368,21 +371,22 @@ namespace Chrono.Graph.Adapter.Neo4j
         {
             whereClause = null;
 
-            var makeKey = new Func<string, string>(s => $"{s}{Hash}");
+			var makeKey = new Func<string, string, string>((s, h) => $"{s}{Hash}_{h}");
 
             // Populate parameters for all clauses (both inline map and WHERE share params)
             if (Clauses.Count > 0)
             {
                 foreach (var c in Clauses)
                 {
-                    var key = makeKey(c.Key);
-                    Statement.InVars[key] = new CypherVar
+                    var key = makeKey(c.PropertyLabel, c.Hash);
+                    var newVar = new CypherVar
                     {
-                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Object = StandardizeOperandForCypher(c.Operator, c.Operand),
                         Var = key
                     };
-                    if (c.Value.Operator == CypherConstants.InOperator)
-                        _rawParamKeys.Add(key);
+                    Statement.InVars.Add(newVar);
+                    if (c.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(Utils.StandardizeVariableName(newVar.Var));
                 }
             }
 
@@ -391,14 +395,15 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var subVars = RecurseSubClausesForVars(SubClauses);
                 foreach (var c in subVars)
                 {
-                    var key = makeKey(c.Key);
-                    Statement.InVars[key] = new CypherVar
+                    var key = makeKey(c.PropertyLabel, c.Hash);
+                    var newVar = new CypherVar
                     {
-                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Object = StandardizeOperandForCypher(c.Operator, c.Operand),
                         Var = key
                     };
-                    if (c.Value.Operator == CypherConstants.InOperator)
-                        _rawParamKeys.Add(key);
+                    Statement.InVars.Add(newVar);
+                    if (c.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(Utils.StandardizeVariableName(newVar.Var));
                 }
             }
 
@@ -425,7 +430,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var mapItems = new List<string>();
                 if (Clauses.Count > 0)
                     mapItems.Add(Clauses
-                        .Select(c => $"{c.Key}{c.Value.Operator} ${c.Key}{Hash}")
+                        .Select(c => $"{c.PropertyLabel}{c.Operator} ${Utils.StandardizeVariableName(c.PropertyLabel)}{Hash}_{c.Hash}")
                         .Aggregate((a, b) => $"{a}, {b}"));
 
                 if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
@@ -443,7 +448,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var predicates = new List<string>();
                 if (Clauses.Count > 0)
                     predicates.Add(Clauses
-                        .Select(c => BuildPredicate(RootVar.Var, c))
+                        .Select(c => BuildPredicate(RootVar.Var, c, Hash))
                         .Aggregate((a, b) => $"{a} AND {b}"));
 
                 if (SubClauses.Any(c => (c.Clauses?.Count ?? 0) > 0))
@@ -504,18 +509,19 @@ namespace Chrono.Graph.Adapter.Neo4j
             // Append WHERE for child if any clauses were defined via Join(operand, clause)
             if (connection.Value.Clauses.Count > 0 || (connection.Value.SubClauses?.Any(c => (c.Clauses?.Count ?? 0) > 0) ?? false))
             {
-                var makeKey = new Func<string, string>(s => $"{s}{Hash}");
+				var makeKey = new Func<string, string, string>((s, h) => $"{s}{Hash}_{h}");
 
                 foreach (var c in connection.Value.Clauses)
                 {
-                    var key = makeKey(c.Key);
-                    Statement.InVars[key] = new CypherVar
+                    var key = makeKey(c.PropertyLabel, c.Hash);
+                    var newVar = new CypherVar
                     {
-                        Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                        Object = StandardizeOperandForCypher(c.Operator, c.Operand),
                         Var = key
                     };
-                    if (c.Value.Operator == CypherConstants.InOperator)
-                        _rawParamKeys.Add(key);
+                    Statement.InVars.Add(newVar);
+                    if (c.Operator == CypherConstants.InOperator)
+                        _rawParamKeys.Add(Utils.StandardizeVariableName(newVar.Var));
                 }
 
                 if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
@@ -523,21 +529,22 @@ namespace Chrono.Graph.Adapter.Neo4j
                     var subVars = RecurseSubClausesForVars(connection.Value.SubClauses);
                     foreach (var c in subVars)
                     {
-                        var key = makeKey(c.Key);
-                        Statement.InVars[key] = new CypherVar
+                        var key = makeKey(c.PropertyLabel, c.Hash);
+                        var newVar = new CypherVar
                         {
-                            Object = StandardizeOperandForCypher(c.Value.Operator, c.Value.Operand),
+                            Object = StandardizeOperandForCypher(c.Operator, c.Operand),
                             Var = key
                         };
-                        if (c.Value.Operator == CypherConstants.InOperator)
-                            _rawParamKeys.Add(key);
+                        Statement.InVars.Add(newVar);
+                        if (c.Operator == CypherConstants.InOperator)
+                            _rawParamKeys.Add(newVar.Var);
                     }
                 }
 
                 var predicates = new List<string>();
                 if (connection.Value.Clauses.Count > 0)
                     predicates.Add(connection.Value.Clauses
-                        .Select(c => BuildPredicate(connectedVar, c))
+                        .Select(c => BuildPredicate(connectedVar, c, Hash))
                         .Aggregate((a, b) => $"{a} AND {b}"));
 
                 if (connection.Value.SubClauses.Any(sc => (sc.Clauses?.Count ?? 0) > 0))
@@ -599,8 +606,13 @@ namespace Chrono.Graph.Adapter.Neo4j
 
             foreach (var kvp in Statement.InVars)
             {
-                if (!_rawParamKeys.Contains(kvp.Key))
-                    Statement.InVars[kvp.Key].Object = Utils.StandardizePropertyValue(kvp.Value.Object);
+                if (!_rawParamKeys.Contains(kvp.Var))
+                {
+                    var inVar = Statement.InVars.FirstOrDefault(v => v.Var == kvp.Var);
+                    if (inVar == null)
+                        throw new DataMisalignedException("Cannot determine correct variable");
+                    inVar.Object = Utils.StandardizePropertyValue(kvp.Object);
+                }
             }
 
             var edgeAction = Statement.Commands.Any(c => c.StartsWith(CypherConstants.CreateCommand))
@@ -653,11 +665,11 @@ namespace Chrono.Graph.Adapter.Neo4j
             if (subStatements.Count > 0)
             {
 
-                Statement.InVars.Merge(subStatements
+                Statement.InVars.AddRange(subStatements
                     .SelectMany(s => s != null ? s.InVars
                         .Select(v => v) : [])
-                    .GroupBy(s => s.Key)
-                    .ToDictionary(s => s.Key, s => s.Last().Value));
+                    .GroupBy(s => s.Var)
+                    .Select(s => s.Last()));
 
                 var subNodes = subStatements
                     .Select(s => s?.NodeCypher)
@@ -727,10 +739,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var dict = GeneratePropertiesDict(thing);
                 var prefix = "create";
                 var label = ObjectHelper.GetObjectLabel(thing.GetType());
-                var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}");
+				var makeKey = new Func<string, string>(s => $"{prefix}{s}{Hash}");
 
-                Statement.InVars.Merge(dict.ToDictionary(
-                    i => makeKey(i.Key),
+                Statement.InVars.AddRange(dict.Select(
                     i => new CypherVar
                     {
                         Object = i.Value,
@@ -997,12 +1008,10 @@ namespace Chrono.Graph.Adapter.Neo4j
             // Start a new clause group for this Where, so subsequent Or/And calls
             // can combine with the initial predicate using proper precedence
             var subclause = new ClauseGroup();
-            var label = ObjectHelper.GetPropertyLabel(type, propertyName);
+            clause.PropertyLabel = ObjectHelper.GetPropertyLabel(type, propertyName);
+            clause.Hash = Nanoid.Generate(CypherConstants.SafeAlphabet, CypherConstants.SafeIdLength);
 
-            if (!subclause.Clauses.TryAdd(label, clause)
-                && subclause.Clauses.TryGetValue(label, out var existingClause)
-                && !existingClause.Equals(clause))
-                throw new ArgumentException("A data collision has occurred when attempting to build a clause");
+            subclause.Clauses.Add(clause);
 
             SubClauses = SubClauses.Append(subclause);
             return subclause;

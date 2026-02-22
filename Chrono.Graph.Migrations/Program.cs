@@ -57,16 +57,16 @@ public class Program
 
         if (planMode)
         {
-            WriteColorLine("📋 Migration plan (would run):", ConsoleColor.Gray);
+            WriteColorLine("Migration plan (would run):", ConsoleColor.Gray);
             foreach (var scriptPath in scripts)
             {
                 WriteColorLine($"  {Path.GetFileName(scriptPath)}", ConsoleColor.Yellow);
             }
 
             if (summaryMode)
-                WriteColorLine($"📊 Plan summary: {scripts.Count} script(s) would run.", ConsoleColor.Gray);
+                WriteColorLine($"Plan summary: {scripts.Count} script(s) would run.", ConsoleColor.Gray);
 
-            WriteColorLine("📝 No scripts executed due to --plan.", ConsoleColor.DarkYellow);
+            WriteColorLine("No scripts executed due to --plan.", ConsoleColor.DarkYellow);
             return;
         }
 
@@ -82,7 +82,7 @@ public class Program
 
         if (listMode)
         {
-            WriteColorLine("📋 Script status:", ConsoleColor.Gray);
+            WriteColorLine("Script status:", ConsoleColor.Gray);
             var paths = Directory
                 .GetFiles(dir, "*.cypher").Where(f => !f.EndsWith(".rollback.cypher"))
                 .Concat(Directory.GetFiles(dir, "*.csx"))
@@ -91,23 +91,23 @@ public class Program
             {
                 var name = Path.GetFileName(path);
                 if (applied.Contains(name))
-                    WriteColorLine($"  ✅ {name}", ConsoleColor.Green);
+                    WriteColorLine($"  {name}", ConsoleColor.Green);
                 else
-                    WriteColorLine($"  ❌ {name}", ConsoleColor.Yellow);
+                    WriteColorLine($"  {name}", ConsoleColor.Yellow);
             }
             return;
         }
 
         if (!scripts.Any())
         {
-            WriteColorLine("✅ No new scripts to run.", ConsoleColor.Green);
+            WriteColorLine("No new scripts to run.", ConsoleColor.Green);
             return;
         }
 
         foreach (var scriptPath in scripts)
         {
             var fileName = Path.GetFileName(scriptPath);
-            WriteColorLine($"{(dryRun ? "📝 Dry run" : "🚀 Running")}: {fileName}", dryRun ? ConsoleColor.DarkYellow : ConsoleColor.Cyan);
+            WriteColorLine($"{(dryRun ? "Dry run" : "Running")}: {fileName}", dryRun ? ConsoleColor.DarkYellow : ConsoleColor.Cyan);
 
             if (fileName.EndsWith(".cypher", StringComparison.OrdinalIgnoreCase))
             {
@@ -125,7 +125,7 @@ public class Program
                             if (!string.IsNullOrWhiteSpace(trimmed))
                             {
                                 if (verbose)
-                                    WriteColorLine($"\n💬 Executing:\n{trimmed}\n", ConsoleColor.Cyan);
+                                    WriteColorLine($"\nExecuting:\n{trimmed}\n", ConsoleColor.Cyan);
 
                                 await tx.RunAsync(trimmed);
                                 appliedCount++;
@@ -147,7 +147,7 @@ public class Program
                 if (!dryRun)
                 {
                     if (verbose)
-                        WriteColorLine($"\n💬 Executing:\n{scriptPath}\n", ConsoleColor.Cyan);
+                        WriteColorLine($"\nExecuting:\n{scriptPath}\n", ConsoleColor.Cyan);
                     await RunCsx(driver, graphDb, jsonOptions, db, scriptPath, verbose);
 
                     await using var session = driver.AsyncSession(o => o.WithDatabase(db));
@@ -167,10 +167,10 @@ public class Program
         await driver.DisposeAsync();
         if (summaryMode)
         {
-            WriteColorLine($"📊 Migration summary: {appliedCount} script(s) applied.", ConsoleColor.Gray);
+            WriteColorLine($"Migration summary: {appliedCount} script(s) applied.", ConsoleColor.Gray);
         }
 
-        WriteColorLine("✅ Done.", ConsoleColor.Green);
+        WriteColorLine("Done.", ConsoleColor.Green);
 
     }
 
@@ -242,11 +242,11 @@ public class Program
 
         if (File.Exists(rollbackPath))
         {
-            WriteColorLine($"🧨 Found rollback script: {Path.GetFileName(rollbackPath)}", ConsoleColor.Red);
+            WriteColorLine($"Found rollback script: {Path.GetFileName(rollbackPath)}", ConsoleColor.Red);
 
             if (dryRun)
             {
-                WriteColorLine("📝 Dry run enabled — printing rollback script:", ConsoleColor.DarkYellow);
+                WriteColorLine("Dry run enabled — printing rollback script:", ConsoleColor.DarkYellow);
                 WriteColorLine(await File.ReadAllTextAsync(rollbackPath), ConsoleColor.Gray);
             }
             else
@@ -262,24 +262,24 @@ public class Program
                         if (!string.IsNullOrWhiteSpace(trimmed))
                         {
                             if (verbose)
-                                WriteColorLine($"\n💬 Executing:\n{trimmed}\n", ConsoleColor.Cyan);
+                                WriteColorLine($"\nExecuting:\n{trimmed}\n", ConsoleColor.Cyan);
 
                             await tx.RunAsync(trimmed);
                         }
                     }
                 });
 
-                WriteColorLine("✅ Rollback script executed.", ConsoleColor.Green);
+                WriteColorLine("Rollback script executed.", ConsoleColor.Green);
             }
         }
         else
         {
-            WriteColorLine($"⚠️ No rollback file found at {rollbackPath}, continuing with ScriptRun cleanup only.", ConsoleColor.DarkYellow);
+            WriteColorLine($"No rollback file found at {rollbackPath}, continuing with ScriptRun cleanup only.", ConsoleColor.DarkYellow);
         }
 
         if (dryRun)
         {
-            WriteColorLine($"📝 Dry run: would remove ScriptRun node for '{rollbackTarget}'", ConsoleColor.Magenta);
+            WriteColorLine($"Dry run: would remove ScriptRun node for '{rollbackTarget}'", ConsoleColor.Magenta);
         }
         else
         {
@@ -291,9 +291,9 @@ public class Program
             });
 
             if (deleted > 0)
-                WriteColorLine($"🧹 Removed ScriptRun node for '{rollbackTarget}'.", ConsoleColor.Magenta);
+                WriteColorLine($"Removed ScriptRun node for '{rollbackTarget}'.", ConsoleColor.Magenta);
             else
-                WriteColorLine($"⚠️ No ScriptRun node found for '{rollbackTarget}'.", ConsoleColor.DarkYellow);
+                WriteColorLine($"No ScriptRun node found for '{rollbackTarget}'.", ConsoleColor.DarkYellow);
         }
 
         await driver.DisposeAsync();

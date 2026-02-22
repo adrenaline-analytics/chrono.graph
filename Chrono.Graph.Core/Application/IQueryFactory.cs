@@ -14,7 +14,7 @@ namespace Chrono.Graph.Core.Application
         void ReturnStructured(Action<IJoiner> joiner);
 
 		Statement Statement { get; set; }
-        Dictionary<string, Clause> Clauses { get; set; }
+        List<Clause> Clauses { get; set; }
     }
 
 }

@@ -20,7 +20,7 @@ namespace Chrono.Graph.Core.Domain
         }
         public IList<string> SecondaryLabels { get; set; } = [];
         public GraphObjectType GraphType { get; set; } = GraphObjectType.Node;
-        public Dictionary<string, Clause> Clauses { get; set; } = [];
+        public List<Clause> Clauses { get; set; } = [];
         public IEnumerable<ClauseGroup> SubClauses { get; set; } = [];
         public Dictionary<string, CypherVar> Connections { get; set; } = [];
         /// <summary>

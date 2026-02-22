@@ -50,7 +50,7 @@ namespace Chrono.Graph.Adapter.Neo4j
             foreach (var preload in statement.Preloads)
                 await Execute(preload.Key, preload.Value);
 
-            return await Execute(statement.Cypher, statement.InVars.ToDictionary(v => v.Key, v => v.Value.Object));
+            return await Execute(statement.Cypher, statement.InVars.ToDictionary(v => v.Var, v => v.Object));
 
         }
         /// <summary>

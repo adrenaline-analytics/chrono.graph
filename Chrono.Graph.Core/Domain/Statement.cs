@@ -16,14 +16,14 @@ namespace Chrono.Graph.Core.Domain
         public Dictionary<string, string> DoOns { get; set; } = [];
 
         public Dictionary<string, CypherVar> OutVars { get; set; } = new Dictionary<string, CypherVar>();
-        public Dictionary<string, CypherVar> InVars { get; set; } = new Dictionary<string, CypherVar>();
+        public List<CypherVar> InVars { get; set; } = [];
         public string[] Withs { get; set; } = [];
 
         //node var, properties
 
         public static Statement operator + (Statement them, Statement me)
         {
-            them.InVars.Merge(me.InVars);
+            them.InVars.AddRange(me.InVars);
             them.OutVars.Merge(me.OutVars);
             them.Commands = me.Commands;
             them.Returns = me.Returns;

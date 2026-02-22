@@ -6,6 +6,7 @@ using Chrono.Graph.Core.Constant;
 using Chrono.Graph.Core.Domain;
 using Chrono.Graph.Core.Notations;
 using Chrono.Graph.Core.Utilities;
+using NanoidDotNet;
 using Neo4j.Driver;
 
 
@@ -81,6 +82,7 @@ namespace Chrono.Graph.Adapter.Neo4j
                 });
 
 
+		private string makeKey (string s, IQueryFactory factory) => $"{s}{factory.Hash}";
         public Task RemoveEdge<T, TT>(T thing, Expression<Func<T, TT?>> operand) where T : class
         {
             // Build a query to remove the edge defined by the operand's property
@@ -97,10 +99,9 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var childLabel = ObjectHelper.GetObjectLabel((prop.PropertyType.IsGenericType ? prop.PropertyType.GetGenericArguments()[0] : prop.PropertyType));
 
                 var idProp = ObjectHelper.GetIdProp(typeof(T));
-                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
-                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
+                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(idProp.Name, factory), Object = idProp.GetValue(thing) });
 
-                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}})-[rel:{edgeLabel}]->(:{childLabel}) DELETE rel";
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name, factory)}}})-[rel:{edgeLabel}]->(:{childLabel}) DELETE rel";
                 factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
                 return factory;
             });
@@ -127,11 +128,10 @@ namespace Chrono.Graph.Adapter.Neo4j
                 var idProp = ObjectHelper.GetIdProp(typeof(T));
                 var childIdProp = ObjectHelper.GetIdProp(childType);
 
-                var makeKey = new Func<string, string>(s => $"{s}{factory.Hash}");
-                factory.Statement.InVars[makeKey(idProp.Name)] = new CypherVar { Var = makeKey(idProp.Name), Object = idProp.GetValue(thing) };
-                factory.Statement.InVars[makeKey(childIdProp.Name)] = new CypherVar { Var = makeKey(childIdProp.Name), Object = childIdProp.GetValue(childThing) };
+                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(idProp.Name, factory), Object = idProp.GetValue(thing) });
+                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(childIdProp.Name, factory), Object = childIdProp.GetValue(childThing) });
 
-                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(childIdProp.Name)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name, factory)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(childIdProp.Name, factory)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
                 factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
                 return factory;
             });
