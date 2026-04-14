@@ -127,11 +127,13 @@ namespace Chrono.Graph.Adapter.Neo4j
 
                 var idProp = ObjectHelper.GetIdProp(typeof(T));
                 var childIdProp = ObjectHelper.GetIdProp(childType);
+                var idVarKey = $"{idProp.Name}_parent".ToLower();
+                var idChildVarKey = $"{idProp.Name}_child".ToLower();
 
-                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(idProp.Name, factory), Object = idProp.GetValue(thing) });
-                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(childIdProp.Name, factory), Object = childIdProp.GetValue(childThing) });
+                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(idVarKey, factory), Object = idProp.GetValue(thing) });
+                factory.Statement.InVars.Add(new CypherVar { Var = makeKey(idChildVarKey, factory), Object = childIdProp.GetValue(childThing) });
 
-                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idProp.Name, factory)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(childIdProp.Name, factory)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
+                var cypher = $@"MATCH (root:{rootLabel} {{{idProp.Name}: ${makeKey(idVarKey, factory)}}}), (child:{childLabel} {{{childIdProp.Name}: ${makeKey(idChildVarKey, factory)}}}) MERGE (root)-[:{edgeLabel}]->(child)";
                 factory.Statement.Commands = [.. factory.Statement.Commands, cypher];
                 return factory;
             });
